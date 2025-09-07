@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 
 """
-Sende Prompt + beliebige Dateien (inkl. MP4) an Ollama.
-- /api/chat wird bevorzugt; bei 404 Fallback auf /api/generate.
-- Bilder -> base64 im 'images'-Feld (für Vision-Modelle).
-- Textdateien -> als Anhang im Prompt (Codeblock).
-- PDF/DOCX -> optionale Textextraktion (PyPDF2 / python-docx).
-- MP4 -> extrahiert N Frames (PNG, base64) und hängt sie an 'images'.
+Send a prompt plus arbitrary files (including MP4) to Ollama.
+- Prefers /api/chat; falls back to /api/generate on 404.
+- Images -> base64 in the "images" field (for vision models).
+- Text files -> appended to the prompt as code blocks.
+- PDF/DOCX -> optional text extraction (PyPDF2 / python-docx).
+- MP4 -> extracts N frames (PNG, base64) and appends them to "images".
 
-Kompatibel mit Ollama 0.11.10 (REST).
-Erweitertes Tracing via --verbose/--debug: Endpoints, Dauer, Status/Body, Fehlerpfad.
+Compatible with Ollama 0.11.10 (REST).
+Extended tracing via --verbose/--debug: endpoints, duration, status/body, error path.
 """
 
 import argparse
@@ -52,13 +52,13 @@ def setup_logging(verbosity: int) -> None:
     LOG.addHandler(handler)
 
 
-# ---------------------- Optionale Parser für PDF/DOCX --------------------
+# ---------------------- Optional parsers for PDF/DOCX --------------------
 
 def try_extract_pdf_text(path: str) -> str:
     try:
         import PyPDF2  # type: ignore
     except Exception:
-        LOG.debug("PyPDF2 nicht installiert – PDF wird nicht extrahiert.")
+        LOG.debug("PyPDF2 not installed – PDF will not be extracted.")
         return ""
     try:
         text = []
@@ -67,10 +67,10 @@ def try_extract_pdf_text(path: str) -> str:
             for page in reader.pages:
                 text.append(page.extract_text() or "")
         out = "\n".join(text).strip()
-        LOG.info("PDF-Text extrahiert: %s (%d Zeichen)", os.path.basename(path), len(out))
+        LOG.info("Extracted PDF text: %s (%d chars)", os.path.basename(path), len(out))
         return out
     except Exception as e:
-        LOG.warning("PDF-Extraktion fehlgeschlagen (%s): %s", path, e)
+        LOG.warning("PDF extraction failed (%s): %s", path, e)
         return ""
 
 
@@ -78,17 +78,17 @@ def try_extract_docx_text(path: str) -> str:
     try:
         import docx  # python-docx
     except Exception:
-        LOG.debug("python-docx nicht installiert – DOCX wird nicht extrahiert.")
+        LOG.debug("python-docx not installed – DOCX will not be extracted.")
         return ""
     try:
         with open(path, "rb") as f:
-            blob = f.read()  # sicher schließen
-        doc = docx.Document(io.BytesIO(blob))  # kein offener File-Handle
+            blob = f.read()  # ensure closing
+        doc = docx.Document(io.BytesIO(blob))  # no open file handle
         out = "\n".join(p.text for p in doc.paragraphs).strip()
-        LOG.info("DOCX-Text extrahiert: %s (%d Zeichen)", os.path.basename(path), len(out))
+        LOG.info("Extracted DOCX text: %s (%d chars)", os.path.basename(path), len(out))
         return out
     except Exception as e:
-        LOG.warning("DOCX-Extraktion fehlgeschlagen (%s): %s", path, e)
+        LOG.warning("DOCX extraction failed (%s): %s", path, e)
         return ""
 
 
@@ -100,25 +100,25 @@ def extract_video_frames_b64(
     target_width: Optional[int] = 640,
 ) -> List[str]:
     """
-    Extrahiert bis zu max_frames gleichmäßig verteilte Frames und liefert sie
-    als base64-kodierte PNGs (Strings) zurück. Benötigt opencv-python.
+    Extracts up to max_frames evenly distributed frames and returns them
+    as base64-encoded PNG strings. Requires opencv-python.
     """
     try:
         import cv2  # type: ignore
     except Exception as e:
-        LOG.error("Für Video-Frames wird opencv-python benötigt: %s", e)
+        LOG.error("opencv-python is required for video frames: %s", e)
         return []
 
-    LOG.info("Video erkannt, extrahiere Frames: %s", path)
+    LOG.info("Video detected, extracting frames: %s", path)
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
-        LOG.error("Konnte Video nicht öffnen: %s", path)
+        LOG.error("Could not open video: %s", path)
         return []
 
     try:
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         if frame_count <= 0:
-            LOG.error("Keine gültigen Frames in: %s", path)
+            LOG.error("No valid frames in: %s", path)
             return []
 
         num = max(1, min(max_frames, frame_count))
@@ -129,7 +129,7 @@ def extract_video_frames_b64(
             cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
             ok, frame = cap.read()
             if not ok or frame is None:
-                LOG.debug("Frame %d konnte nicht gelesen werden.", idx)
+                LOG.debug("Frame %d could not be read.", idx)
                 continue
 
             if target_width and frame.shape[1] > target_width:
@@ -142,14 +142,14 @@ def extract_video_frames_b64(
 
             ok, buf = cv2.imencode(".png", frame)
             if not ok:
-                LOG.debug("Frame %d konnte nicht als PNG encodiert werden.", idx)
+                LOG.debug("Frame %d could not be encoded as PNG.", idx)
                 continue
             b64 = base64.b64encode(buf.tobytes()).decode("ascii")
             images_b64.append(b64)
 
-        LOG.info("Aus '%s' wurden %d Frames extrahiert (Zielbreite: %s).",
+        LOG.info("Extracted %d frames from '%s' (target width: %s)",
                  os.path.basename(path), len(images_b64),
-                 f"{target_width}px" if target_width else "Original")
+                 f"{target_width}px" if target_width else "original")
         return images_b64
     finally:
         cap.release()
@@ -163,7 +163,7 @@ TEXT_LIKE_EXT = {
     ".html", ".htm", ".css", ".js", ".ts", ".py", ".java", ".go", ".rs",
     ".c", ".cpp", ".h", ".hpp", ".ini", ".conf", ".log"
 }
-VIDEO_EXT = {".mp4"}  # ggf. erweitern: .mov, .mkv ...
+VIDEO_EXT = {".mp4"}  # extend as needed: .mov, .mkv ...
 IMAGE_MIME_PREFIXES = ("image/",)
 
 def is_image(path: str) -> bool:
@@ -180,29 +180,29 @@ def read_text_file(path: str, encoding: str = "utf-8", max_chars: int = 200_000)
             data = f.read()
         truncated = False
         if len(data) > max_chars:
-            data = data[:max_chars] + "\n\n[... abgeschnitten …]"
+            data = data[:max_chars] + "\n\n[... truncated ...]"
             truncated = True
-        LOG.info("Textdatei gelesen: %s (%d Zeichen%s)",
-                 os.path.basename(path), len(data), ", gekürzt" if truncated else "")
+        LOG.info("Read text file: %s (%d chars%s)",
+                 os.path.basename(path), len(data), ", truncated" if truncated else "")
         return data, truncated
     except Exception as e:
-        LOG.warning("Als Text lesen fehlgeschlagen (%s): %s", path, e)
-        return f"[FEHLER beim Lesen als Text: {e}]", False
+        LOG.warning("Failed to read as text (%s): %s", path, e)
+        return f"[ERROR reading as text: {e}]", False
 
 def to_base64(path: str) -> str:
     with open(path, "rb") as f:
         blob = f.read()
-    LOG.debug("Datei base64-kodiert: %s (%d Bytes)", os.path.basename(path), len(blob))
+    LOG.debug("File base64-encoded: %s (%d bytes)", os.path.basename(path), len(blob))
     return base64.b64encode(blob).decode("ascii")
 
 def build_user_content(prompt: str, text_attachments: List[Tuple[str, str]], video_notes: List[str]) -> str:
     parts = [prompt]
     if text_attachments:
-        parts.append("\n\n---\n### Anhänge (Text)")
+        parts.append("\n\n---\n### Attachments (Text)")
         for fname, txt in text_attachments:
             parts.append(f"\n**{fname}**:\n```\n{txt}\n```")
     if video_notes:
-        parts.append("\n\n---\n### Video-Hinweise")
+        parts.append("\n\n---\n### Video Notes")
         for note in video_notes:
             parts.append(f"- {note}")
     return "\n".join(parts)
@@ -216,22 +216,22 @@ def _post_json(url: str, payload: dict, *, stream: bool = False, timeout: int = 
     start = time.monotonic()
     resp = requests.post(url, json=payload, stream=stream, timeout=timeout)
     dur = time.monotonic() - start
-    LOG.info("Response %s in %.3fs von %s", resp.status_code, dur, url)
+    LOG.info("Response %s in %.3fs from %s", resp.status_code, dur, url)
     if resp.status_code >= 400:
-        # Body (max 2k) zur Diagnose
+        # Body (max 2k) for diagnostics
         try:
             body = resp.text
             if len(body) > 2048:
-                body = body[:2048] + "\n...[gekürzt]..."
+                body = body[:2048] + "\n...[truncated]..."
         except Exception:
-            body = "<Body nicht lesbar>"
-        LOG.warning("Fehler-Body (%s):\n---\n%s\n---", url, body)
+            body = "<Body not readable>"
+        LOG.warning("Error body (%s):\n---\n%s\n---", url, body)
     return resp
 
 def _read_nonstream_json_fallback(resp: requests.Response) -> dict:
     """
-    Robust gegen falsch gesetzer Streaming-Server: Versucht zuerst resp.json(),
-    fällt dann auf NDJSON-/Zeilen-Parsing zurück (nimmt den letzten validen JSON-Block).
+    Robust against misconfigured streaming servers: tries resp.json() first,
+    then falls back to NDJSON/line parsing (uses the last valid JSON block).
     """
     try:
         return resp.json()
@@ -246,10 +246,10 @@ def _read_nonstream_json_fallback(resp: requests.Response) -> dict:
 
 def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, user_content: str, stream: bool) -> None:
     """
-    Versucht zuerst /api/chat. Bei 404:
-      - wenn "model not found" -> klare Meldung
-      - sonst Fallback auf /api/generate (Prompt + images)
-    Gibt die Modellantwort auf stdout aus (Streaming oder finaler Block).
+    Tries /api/chat first. On 404:
+      - if "model not found" -> clear message
+      - otherwise fall back to /api/generate (prompt + images)
+    Outputs the model response to stdout (streaming or final block).
     """
     base_url = base_url.rstrip("/")
     chat_url = base_url + "/api/chat"
@@ -262,14 +262,14 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
                 if r.status_code == 404:
                     body = r.text.lower()
                     if "model" in body and "not found" in body:
-                        model = payload_chat.get("model", "<unbekannt>")
-                        LOG.error("Modell '%s' nicht vorhanden. Bitte ausführen: ollama pull %s", model, model)
-                        print(f"[FEHLER] Modell '{model}' nicht vorhanden. Bitte 'ollama pull {model}' ausführen.", file=sys.stderr)
+                        model = payload_chat.get("model", "<unknown>")
+                        LOG.error("Model '%s' not found. Please run: ollama pull %s", model, model)
+                        print(f"[ERROR] Model '{model}' not found. Please run 'ollama pull {model}'.", file=sys.stderr)
                         return
-                    LOG.info("Endpoint /api/chat nicht verfügbar – Fallback auf /api/generate.")
+                    LOG.info("Endpoint /api/chat not available – falling back to /api/generate.")
                 else:
                     r.raise_for_status()
-                    LOG.info("Streaming von /api/chat gestartet …")
+                    LOG.info("Streaming from /api/chat started ...")
                     for line in r.iter_lines(decode_unicode=True):
                         if not line:
                             continue
@@ -288,11 +288,11 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
                 if r.status_code == 404:
                     body = r.text.lower()
                     if "model" in body and "not found" in body:
-                        model = payload_chat.get("model", "<unbekannt>")
-                        LOG.error("Modell '%s' nicht vorhanden. Bitte ausführen: ollama pull %s", model, model)
-                        print(f"[FEHLER] Modell '{model}' nicht vorhanden. Bitte 'ollama pull {model}' ausführen.", file=sys.stderr)
+                        model = payload_chat.get("model", "<unknown>")
+                        LOG.error("Model '%s' not found. Please run: ollama pull %s", model, model)
+                        print(f"[ERROR] Model '{model}' not found. Please run 'ollama pull {model}'.", file=sys.stderr)
                         return
-                    LOG.info("Endpoint /api/chat nicht verfügbar – Fallback auf /api/generate.")
+                    LOG.info("Endpoint /api/chat not available – falling back to /api/generate.")
                 else:
                     r.raise_for_status()
                     data = _read_nonstream_json_fallback(r)
@@ -300,13 +300,13 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
                     print(content)
                     return
     except requests.RequestException as e:
-        LOG.warning("/api/chat fehlgeschlagen (%s). Fallback wird versucht.", e)
+        LOG.warning("/api/chat failed (%s). Trying fallback.", e)
 
     # 2) /api/generate (Fallback)
     payload_generate = {
         "model": payload_chat.get("model"),
         "prompt": user_content,
-        "stream": True if stream else False,  # <<< WICHTIG
+        "stream": True if stream else False,  # <<< IMPORTANT
     }
     if images_present:
         imgs = payload_chat["messages"][0].get("images", [])
@@ -317,7 +317,7 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
         if stream:
             with _post_json(gen_url, payload_generate, stream=True) as r:
                 r.raise_for_status()
-                LOG.info("Streaming von /api/generate gestartet …")
+                LOG.info("Streaming from /api/generate started ...")
                 for line in r.iter_lines(decode_unicode=True):
                     if not line:
                         continue
@@ -340,57 +340,57 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
                 print(content)
                 return
     except requests.RequestException as e:
-        LOG.error("Fallback /api/generate fehlgeschlagen: %s", e)
-        print(f"[FEHLER] Anfrage an Ollama fehlgeschlagen (Fallback /api/generate): {e}", file=sys.stderr)
+        LOG.error("Fallback /api/generate failed: %s", e)
+        print(f"[ERROR] Request to Ollama failed (fallback /api/generate): {e}", file=sys.stderr)
         sys.exit(1)
 
 
 # --------------------------------- CLI -----------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Prompt + Dateien (inkl. MP4) an Ollama senden.")
+    parser = argparse.ArgumentParser(description="Send a prompt plus files (including MP4) to Ollama.")
     parser.add_argument("-m", "--model", default="llama3.2-vision",
-                        help="Ollama-Modell (z. B. llama3.2-vision, llama3.1, qwen2.5, usw.)")
-    parser.add_argument("-p", "--prompt", required=True, help="Prompt/Nutzeranweisung")
-    parser.add_argument("-f", "--file", action="append", dest="files", default=[], help="Dateipfad (mehrfach nutzbar)")
+                        help="Ollama model (e.g. llama3.2-vision, llama3.1, qwen2.5, etc.)")
+    parser.add_argument("-p", "--prompt", required=True, help="Prompt/user instruction")
+    parser.add_argument("-f", "--file", action="append", dest="files", default=[], help="File path (repeatable)")
     parser.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
-                        help="Ollama-Host (Standard: http://localhost:11434 oder Env OLLAMA_HOST)")
-    parser.add_argument("--max-chars", type=int, default=200_000, help="Max Zeichen pro Textdatei (vor Truncation)")
-    parser.add_argument("--no-extract", action="store_true", help="Keine Textextraktion für PDF/DOCX versuchen")
-    parser.add_argument("--stream", action="store_true", help="Antwort als Server-Sent Events streamen")
-    parser.add_argument("--video-max-frames", type=int, default=8, help="Max. extrahierte Frames pro Video")
-    parser.add_argument("--video-width", type=int, default=640, help="Breite zum Resize der Frames (0=aus)")
+                        help="Ollama host (default: http://localhost:11434 or env OLLAMA_HOST)")
+    parser.add_argument("--max-chars", type=int, default=200_000, help="Max chars per text file (before truncation)")
+    parser.add_argument("--no-extract", action="store_true", help="Don't attempt text extraction for PDF/DOCX")
+    parser.add_argument("--stream", action="store_true", help="Stream response as server-sent events")
+    parser.add_argument("--video-max-frames", type=int, default=8, help="Max extracted frames per video")
+    parser.add_argument("--video-width", type=int, default=640, help="Width to resize frames (0=off)")
 
-    # Tracing / Verbosity
+    # Tracing / verbosity
     parser.add_argument("-v", "--verbose", action="count", default=0,
-                        help="Mehr Ausgaben (einmal = INFO, zweimal = DEBUG)")
+                        help="More output (once = INFO, twice = DEBUG)")
     parser.add_argument("--debug", action="store_true",
-                        help="Alias für sehr ausführliches Logging (DEBUG)")
+                        help="Alias for very verbose logging (DEBUG)")
 
     args = parser.parse_args()
     if args.debug:
         args.verbose = max(args.verbose, 2)
     setup_logging(args.verbose)
 
-    LOG.info("Starte ollama_send | Modell=%s | Host=%s | Dateien=%d | Stream=%s",
+    LOG.info("Starting ollama_send | model=%s | host=%s | files=%d | stream=%s",
              args.model, args.host, len(args.files), args.stream)
 
     images_b64: List[str] = []
     text_attachments: List[Tuple[str, str]] = []
     video_notes: List[str] = []
 
-    # --- Dateien einsammeln ---
+    # --- Gather files ---
     for path in args.files:
         if not os.path.isfile(path):
-            LOG.warning("Datei nicht gefunden: %s", path)
+            LOG.warning("File not found: %s", path)
             continue
 
         if is_image(path):
             try:
                 images_b64.append(to_base64(path))
-                LOG.info("Bild hinzugefügt: %s", path)
+                LOG.info("Added image: %s", path)
             except Exception as e:
-                LOG.error("Konnte Bild nicht einlesen (%s): %s", path, e)
+                LOG.error("Could not read image (%s): %s", path, e)
             continue
 
         if is_video(path):
@@ -401,13 +401,13 @@ def main():
             )
             if frames:
                 images_b64.extend(frames)
-                note = (f"Aus '{os.path.basename(path)}' wurden {len(frames)} Frames extrahiert "
-                        f"(Breite ~{args.video_width if args.video_width > 0 else 'Original'} px).")
+                note = (f"Extracted {len(frames)} frames from '{os.path.basename(path)}' "
+                        f"(width ~{args.video_width if args.video_width > 0 else 'original'} px).")
                 video_notes.append(note)
             else:
                 video_notes.append(
-                    f"Video '{os.path.basename(path)}' konnte nicht verarbeitet werden "
-                    f"(ggf. 'pip install opencv-python')."
+                    f"Video '{os.path.basename(path)}' could not be processed "
+                    f"(maybe run 'pip install opencv-python')."
                 )
             continue
 
@@ -423,7 +423,7 @@ def main():
             extracted = try_extract_pdf_text(path)
             if extracted:
                 if len(extracted) > args.max_chars:
-                    extracted = extracted[:args.max_chars] + "\n\n[... abgeschnitten …]"
+                    extracted = extracted[:args.max_chars] + "\n\n[... truncated ...]"
                 text_attachments.append((os.path.basename(path), extracted))
                 continue
 
@@ -431,17 +431,17 @@ def main():
             extracted = try_extract_docx_text(path)
             if extracted:
                 if len(extracted) > args.max_chars:
-                    extracted = extracted[:args.max_chars] + "\n\n[... abgeschnitten …]"
+                    extracted = extracted[:args.max_chars] + "\n\n[... truncated ...]"
                 text_attachments.append((os.path.basename(path), extracted))
                 continue
 
-        # Fallback: als Text versuchen (kann binär sein)
+        # Fallback: try as text (may be binary)
         content, _ = read_text_file(path, max_chars=args.max_chars)
         text_attachments.append((os.path.basename(path), content))
 
     user_content = build_user_content(args.prompt, text_attachments, video_notes)
 
-    # Payload für /api/chat – WICHTIG: stream-Flag korrekt setzen
+    # Payload for /api/chat – IMPORTANT: set stream flag correctly
     payload = {
         "model": args.model,
         "messages": [
@@ -450,13 +450,13 @@ def main():
                 "content": user_content,
             }
         ],
-        "stream": True if args.stream else False,   # <<< WICHTIG
+        "stream": True if args.stream else False,   # <<< IMPORTANT
     }
     if images_b64:
         payload["messages"][0]["images"] = images_b64
-        LOG.info("Images im Payload: %d (inkl. evtl. Video-Frames)", len(images_b64))
+        LOG.info("Images in payload: %d (including possible video frames)", len(images_b64))
 
-    # Senden (mit Fallback & Tracing)
+    # Send (with fallback & tracing)
     send_with_fallback(args.host, payload, images_present=bool(images_b64),
                        user_content=user_content, stream=args.stream)
 

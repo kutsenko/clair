@@ -1,2 +1,2 @@
 # ai-cli
-AI Agines ClI Tools
+AI Agents CLI Tools
