@@ -147,9 +147,12 @@ def extract_video_frames_b64(
             b64 = base64.b64encode(buf.tobytes()).decode("ascii")
             images_b64.append(b64)
 
-        LOG.info("Extracted %d frames from '%s' (target width: %s)",
-                 os.path.basename(path), len(images_b64),
-                 f"{target_width}px" if target_width else "original")
+        LOG.info(
+            "Extracted %d frames from '%s' (target width: %s)",
+            len(images_b64),
+            os.path.basename(path),
+            f"{target_width}px" if target_width else "original",
+        )
         return images_b64
     finally:
         cap.release()
