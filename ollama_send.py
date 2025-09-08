@@ -385,58 +385,7 @@ def send_with_fallback(
 
 # --------------------------------- CLI -----------------------------------
 
-def main():
-    parser = argparse.ArgumentParser(description="Send a prompt plus files (including MP4) to Ollama.")
-    parser.add_argument("-m", "--model", default="llama3.2-vision",
-                        help="Ollama model (e.g. llama3.2-vision, llama3.1, qwen2.5, etc.)")
-    parser.add_argument("-p", "--prompt", required=True, help="Prompt/user instruction")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("-f", "--file", action="append", dest="files", default=[], help="File path (repeatable)")
-    group.add_argument("--url", action="append", dest="urls", default=[], help="Fetch URL and include response text (repeatable)")
-    parser.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
-                        help="Ollama host (default: http://localhost:11434 or env OLLAMA_HOST)")
-    parser.add_argument(
-        "-t",
-        "--type",
-        choices=["image", "video", "doc"],
-        dest="type",
-        help="Override content type for fetched URLs",
-    )
-    parser.add_argument("--max-chars", type=int, default=200_000, help="Max chars per text file (before truncation)")
-    parser.add_argument("--no-extract", action="store_true", help="Don't attempt text extraction for PDF/DOCX")
-    parser.add_argument("--stream", action="store_true", help="Stream response as server-sent events")
-    parser.add_argument("--video-max-frames", type=int, default=8, help="Max extracted frames per video")
-    parser.add_argument("--video-width", type=int, default=640, help="Width to resize frames (0=off)")
-    parser.add_argument(
-        "-o",
-        "--output",
-        nargs="?",
-        const=True,
-        default=False,
-        metavar="FILE",
-        help="Save response to a file. Optional filename; defaults to '<first file>.txt'",
-    )
-
-    # Tracing / verbosity
-    parser.add_argument("-v", "--verbose", action="count", default=0,
-                        help="More output (once = INFO, twice = DEBUG)")
-    parser.add_argument("--debug", action="store_true",
-                        help="Alias for very verbose logging (DEBUG)")
-
-    args = parser.parse_args()
-    if args.debug:
-        args.verbose = max(args.verbose, 2)
-    setup_logging(args.verbose)
-
-    LOG.info(
-        "Starting ollama_send | model=%s | host=%s | files=%d | urls=%d | stream=%s",
-        args.model,
-        args.host,
-        len(args.files),
-        len(args.urls),
-        args.stream,
-    )
-
+def process_single(args) -> None:
     images_b64: List[str] = []
     text_attachments: List[Tuple[str, str]] = []
     video_notes: List[str] = []
@@ -536,8 +485,10 @@ def main():
             )
             if frames:
                 images_b64.extend(frames)
-                note = (f"Extracted {len(frames)} frames from '{os.path.basename(path)}' "
-                        f"(width ~{args.video_width if args.video_width > 0 else 'original'} px).")
+                note = (
+                    f"Extracted {len(frames)} frames from '{os.path.basename(path)}' "
+                    f"(width ~{args.video_width if args.video_width > 0 else 'original'} px)."
+                )
                 video_notes.append(note)
             else:
                 video_notes.append(
@@ -614,6 +565,87 @@ def main():
             LOG.info("Saved response to %s", filename)
         except Exception as e:
             LOG.error("Could not write output file %s: %s", filename, e)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Send a prompt plus files (including MP4) to Ollama.")
+    parser.add_argument("-m", "--model", default="llama3.2-vision",
+                        help="Ollama model (e.g. llama3.2-vision, llama3.1, qwen2.5, etc.)")
+    parser.add_argument("-p", "--prompt", required=True, help="Prompt/user instruction")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-f", "--file", action="append", dest="files", default=[], help="File path (repeatable)")
+    group.add_argument("--url", action="append", dest="urls", default=[], help="Fetch URL and include response text (repeatable)")
+    parser.add_argument("-d", "--directory", help="Process all files in DIRECTORY individually")
+    parser.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+                        help="Ollama host (default: http://localhost:11434 or env OLLAMA_HOST)")
+    parser.add_argument(
+        "-t",
+        "--type",
+        choices=["image", "video", "doc"],
+        dest="type",
+        help="Override content type for fetched URLs",
+    )
+    parser.add_argument("--max-chars", type=int, default=200_000, help="Max chars per text file (before truncation)")
+    parser.add_argument("--no-extract", action="store_true", help="Don't attempt text extraction for PDF/DOCX")
+    parser.add_argument("--stream", action="store_true", help="Stream response as server-sent events")
+    parser.add_argument("--video-max-frames", type=int, default=8, help="Max extracted frames per video")
+    parser.add_argument("--video-width", type=int, default=640, help="Width to resize frames (0=off)")
+    parser.add_argument(
+        "-o",
+        "--output",
+        nargs="?",
+        const=True,
+        default=False,
+        metavar="FILE",
+        help="Save response to a file. Optional filename; defaults to '<first file>.txt'",
+    )
+
+    # Tracing / verbosity
+    parser.add_argument("-v", "--verbose", action="count", default=0,
+                        help="More output (once = INFO, twice = DEBUG)")
+    parser.add_argument("--debug", action="store_true",
+                        help="Alias for very verbose logging (DEBUG)")
+
+    args = parser.parse_args()
+    if args.debug:
+        args.verbose = max(args.verbose, 2)
+    setup_logging(args.verbose)
+
+    LOG.info(
+        "Starting ollama_send | model=%s | host=%s | files=%d | urls=%d | stream=%s",
+        args.model,
+        args.host,
+        len(args.files),
+        len(args.urls),
+        args.stream,
+    )
+
+    if args.directory:
+        if not os.path.isdir(args.directory):
+            LOG.error("Directory not found: %s", args.directory)
+            return
+        file_list = [
+            os.path.join(args.directory, f)
+            for f in sorted(os.listdir(args.directory))
+            if os.path.isfile(os.path.join(args.directory, f))
+        ]
+        out_dir = None
+        if isinstance(args.output, str):
+            out_dir = args.output
+            os.makedirs(out_dir, exist_ok=True)
+        for path in file_list:
+            sub_args = argparse.Namespace(**vars(args))
+            sub_args.directory = None
+            sub_args.files = [path]
+            if out_dir:
+                sub_args.output = os.path.join(out_dir, os.path.basename(path) + ".txt")
+            elif not args.output:
+                sub_args.output = True
+            process_single(sub_args)
+        return
+
+    process_single(args)
+
 
 if __name__ == "__main__":
     main()
