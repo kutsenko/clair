@@ -21,6 +21,7 @@ import logging
 import mimetypes
 import os
 import sys
+import tempfile
 import time
 from typing import List, Tuple, Optional
 from urllib.parse import urlparse
@@ -177,6 +178,15 @@ def is_image(path: str) -> bool:
 def is_video(path: str) -> bool:
     _, ext = os.path.splitext(path)
     return ext.lower() in VIDEO_EXT
+
+
+def infer_content_type(header: str) -> str:
+    header = header.split(";")[0].strip().lower()
+    if header.startswith("image/"):
+        return "image"
+    if header.startswith("video/"):
+        return "video"
+    return "doc"
 
 def read_text_file(path: str, encoding: str = "utf-8", max_chars: int = 200_000) -> Tuple[str, bool]:
     try:
@@ -385,6 +395,12 @@ def main():
     group.add_argument("--url", action="append", dest="urls", default=[], help="Fetch URL and include response text (repeatable)")
     parser.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
                         help="Ollama host (default: http://localhost:11434 or env OLLAMA_HOST)")
+    parser.add_argument(
+        "-c",
+        "--content-type",
+        choices=["image", "video", "doc"],
+        help="Override content type for fetched URLs",
+    )
     parser.add_argument("--max-chars", type=int, default=200_000, help="Max chars per text file (before truncation)")
     parser.add_argument("--no-extract", action="store_true", help="Don't attempt text extraction for PDF/DOCX")
     parser.add_argument("--stream", action="store_true", help="Stream response as server-sent events")
@@ -429,12 +445,64 @@ def main():
         try:
             resp = requests.get(url, timeout=60)
             resp.raise_for_status()
-            content = resp.text
+            header_ct = resp.headers.get("Content-Type", "")
+            ctype = args.content_type or infer_content_type(header_ct)
+            name = os.path.basename(urlparse(url).path) or url
+
+            if ctype == "image":
+                images_b64.append(base64.b64encode(resp.content).decode("ascii"))
+                LOG.info("Fetched image URL: %s (%d bytes)", url, len(resp.content))
+                continue
+
+            if ctype == "video":
+                suffix = os.path.splitext(name)[1] or ".mp4"
+                with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+                    tmp.write(resp.content)
+                    tmp.flush()
+                    frames = extract_video_frames_b64(
+                        tmp.name,
+                        max_frames=max(1, args.video_max_frames),
+                        target_width=args.video_width if args.video_width > 0 else None,
+                    )
+                if frames:
+                    images_b64.extend(frames)
+                    note = (
+                        f"Extracted {len(frames)} frames from '{name}' "
+                        f"(width ~{args.video_width if args.video_width > 0 else 'original'} px)."
+                    )
+                    video_notes.append(note)
+                else:
+                    video_notes.append(
+                        f"Video '{name}' could not be processed (maybe run 'pip install opencv-python')."
+                    )
+                LOG.info("Fetched video URL: %s (%d bytes)", url, len(resp.content))
+                continue
+
+            # default: treat as doc/text
+            header_main = header_ct.split(";")[0].lower()
+            if not args.no_extract and header_main == "application/pdf":
+                with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+                    tmp.write(resp.content)
+                    tmp.flush()
+                    extracted = try_extract_pdf_text(tmp.name)
+                content = extracted or resp.text
+            elif (
+                not args.no_extract
+                and header_main
+                == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ):
+                with tempfile.NamedTemporaryFile(suffix=".docx") as tmp:
+                    tmp.write(resp.content)
+                    tmp.flush()
+                    extracted = try_extract_docx_text(tmp.name)
+                content = extracted or resp.text
+            else:
+                content = resp.text
+
             truncated = False
             if len(content) > args.max_chars:
                 content = content[:args.max_chars] + "\n\n[... truncated ...]"
                 truncated = True
-            name = os.path.basename(urlparse(url).path) or url
             text_attachments.append((name, content))
             LOG.info(
                 "Fetched URL: %s (%d chars%s)",
