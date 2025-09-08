@@ -23,6 +23,7 @@ import os
 import sys
 import time
 from typing import List, Tuple, Optional
+from urllib.parse import urlparse
 
 import requests
 
@@ -379,7 +380,9 @@ def main():
     parser.add_argument("-m", "--model", default="llama3.2-vision",
                         help="Ollama model (e.g. llama3.2-vision, llama3.1, qwen2.5, etc.)")
     parser.add_argument("-p", "--prompt", required=True, help="Prompt/user instruction")
-    parser.add_argument("-f", "--file", action="append", dest="files", default=[], help="File path (repeatable)")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-f", "--file", action="append", dest="files", default=[], help="File path (repeatable)")
+    group.add_argument("--url", action="append", dest="urls", default=[], help="Fetch URL and include response text (repeatable)")
     parser.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
                         help="Ollama host (default: http://localhost:11434 or env OLLAMA_HOST)")
     parser.add_argument("--max-chars", type=int, default=200_000, help="Max chars per text file (before truncation)")
@@ -408,12 +411,39 @@ def main():
         args.verbose = max(args.verbose, 2)
     setup_logging(args.verbose)
 
-    LOG.info("Starting ollama_send | model=%s | host=%s | files=%d | stream=%s",
-             args.model, args.host, len(args.files), args.stream)
+    LOG.info(
+        "Starting ollama_send | model=%s | host=%s | files=%d | urls=%d | stream=%s",
+        args.model,
+        args.host,
+        len(args.files),
+        len(args.urls),
+        args.stream,
+    )
 
     images_b64: List[str] = []
     text_attachments: List[Tuple[str, str]] = []
     video_notes: List[str] = []
+
+    # --- Gather URLs ---
+    for url in args.urls:
+        try:
+            resp = requests.get(url, timeout=60)
+            resp.raise_for_status()
+            content = resp.text
+            truncated = False
+            if len(content) > args.max_chars:
+                content = content[:args.max_chars] + "\n\n[... truncated ...]"
+                truncated = True
+            name = os.path.basename(urlparse(url).path) or url
+            text_attachments.append((name, content))
+            LOG.info(
+                "Fetched URL: %s (%d chars%s)",
+                url,
+                len(content),
+                ", truncated" if truncated else "",
+            )
+        except Exception as e:
+            LOG.warning("Failed to fetch URL %s: %s", url, e)
 
     # --- Gather files ---
     for path in args.files:

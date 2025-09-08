@@ -35,5 +35,9 @@ def dummy_post(url, json=None, stream=False, timeout=None):
     return DummyResponse()
 
 
-requests_stub = types.SimpleNamespace(post=dummy_post, Response=DummyResponse)
+def dummy_get(url, timeout=None):
+    return DummyResponse()
+
+
+requests_stub = types.SimpleNamespace(post=dummy_post, get=dummy_get, Response=DummyResponse)
 sys.modules.setdefault("requests", requests_stub)
