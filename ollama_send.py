@@ -244,12 +244,19 @@ def _read_nonstream_json_fallback(resp: requests.Response) -> dict:
                 continue
         raise
 
-def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, user_content: str, stream: bool) -> None:
+def send_with_fallback(
+    base_url: str,
+    payload_chat: dict,
+    images_present: bool,
+    user_content: str,
+    stream: bool,
+) -> str:
     """
     Tries /api/chat first. On 404:
       - if "model not found" -> clear message
       - otherwise fall back to /api/generate (prompt + images)
-    Outputs the model response to stdout (streaming or final block).
+    Outputs the model response to stdout (streaming or final block) and
+    returns it as a string.
     """
     base_url = base_url.rstrip("/")
     chat_url = base_url + "/api/chat"
@@ -258,14 +265,18 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
     # 1) /api/chat
     try:
         if stream:
+            buffer: List[str] = []
             with _post_json(chat_url, payload_chat, stream=True) as r:
                 if r.status_code == 404:
                     body = r.text.lower()
                     if "model" in body and "not found" in body:
                         model = payload_chat.get("model", "<unknown>")
                         LOG.error("Model '%s' not found. Please run: ollama pull %s", model, model)
-                        print(f"[ERROR] Model '{model}' not found. Please run 'ollama pull {model}'.", file=sys.stderr)
-                        return
+                        print(
+                            f"[ERROR] Model '{model}' not found. Please run 'ollama pull {model}'.",
+                            file=sys.stderr,
+                        )
+                        return ""
                     LOG.info("Endpoint /api/chat not available – falling back to /api/generate.")
                 else:
                     r.raise_for_status()
@@ -279,10 +290,12 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
                             print(line)
                             continue
                         if "message" in ev and "content" in ev["message"]:
-                            print(ev["message"]["content"], end="", flush=True)
+                            chunk = ev["message"]["content"]
+                            print(chunk, end="", flush=True)
+                            buffer.append(chunk)
                         if ev.get("done"):
                             print()
-                            return
+                            return "".join(buffer)
         else:
             with _post_json(chat_url, payload_chat, timeout=600) as r:
                 if r.status_code == 404:
@@ -290,15 +303,18 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
                     if "model" in body and "not found" in body:
                         model = payload_chat.get("model", "<unknown>")
                         LOG.error("Model '%s' not found. Please run: ollama pull %s", model, model)
-                        print(f"[ERROR] Model '{model}' not found. Please run 'ollama pull {model}'.", file=sys.stderr)
-                        return
+                        print(
+                            f"[ERROR] Model '{model}' not found. Please run 'ollama pull {model}'.",
+                            file=sys.stderr,
+                        )
+                        return ""
                     LOG.info("Endpoint /api/chat not available – falling back to /api/generate.")
                 else:
                     r.raise_for_status()
                     data = _read_nonstream_json_fallback(r)
                     content = data.get("message", {}).get("content", "")
                     print(content)
-                    return
+                    return content
     except requests.RequestException as e:
         LOG.warning("/api/chat failed (%s). Trying fallback.", e)
 
@@ -315,6 +331,7 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
 
     try:
         if stream:
+            buffer: List[str] = []
             with _post_json(gen_url, payload_generate, stream=True) as r:
                 r.raise_for_status()
                 LOG.info("Streaming from /api/generate started ...")
@@ -327,10 +344,12 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
                         print(line)
                         continue
                     if "response" in ev:
-                        print(ev["response"], end="", flush=True)
+                        chunk = ev["response"]
+                        print(chunk, end="", flush=True)
+                        buffer.append(chunk)
                     if ev.get("done"):
                         print()
-                        return
+                        return "".join(buffer)
         else:
             with _post_json(gen_url, payload_generate, timeout=600) as r:
                 if r.status_code >= 400:
@@ -338,11 +357,16 @@ def send_with_fallback(base_url: str, payload_chat: dict, images_present: bool, 
                 data = _read_nonstream_json_fallback(r)
                 content = data.get("response", "")
                 print(content)
-                return
+                return content
     except requests.RequestException as e:
         LOG.error("Fallback /api/generate failed: %s", e)
-        print(f"[ERROR] Request to Ollama failed (fallback /api/generate): {e}", file=sys.stderr)
+        print(
+            f"[ERROR] Request to Ollama failed (fallback /api/generate): {e}",
+            file=sys.stderr,
+        )
         sys.exit(1)
+
+    return ""
 
 
 # --------------------------------- CLI -----------------------------------
@@ -360,6 +384,15 @@ def main():
     parser.add_argument("--stream", action="store_true", help="Stream response as server-sent events")
     parser.add_argument("--video-max-frames", type=int, default=8, help="Max extracted frames per video")
     parser.add_argument("--video-width", type=int, default=640, help="Width to resize frames (0=off)")
+    parser.add_argument(
+        "-o",
+        "--output",
+        nargs="?",
+        const=True,
+        default=False,
+        metavar="FILE",
+        help="Save response to a file. Optional filename; defaults to '<first file>.txt'",
+    )
 
     # Tracing / verbosity
     parser.add_argument("-v", "--verbose", action="count", default=0,
@@ -457,8 +490,28 @@ def main():
         LOG.info("Images in payload: %d (including possible video frames)", len(images_b64))
 
     # Send (with fallback & tracing)
-    send_with_fallback(args.host, payload, images_present=bool(images_b64),
-                       user_content=user_content, stream=args.stream)
+    response = send_with_fallback(
+        args.host,
+        payload,
+        images_present=bool(images_b64),
+        user_content=user_content,
+        stream=args.stream,
+    )
+
+    if args.output:
+        if args.output is True:
+            if args.files:
+                filename = args.files[0] + ".txt"
+            else:
+                filename = "response.txt"
+        else:
+            filename = args.output
+        try:
+            with open(filename, "w", encoding="utf-8") as fh:
+                fh.write(response)
+            LOG.info("Saved response to %s", filename)
+        except Exception as e:
+            LOG.error("Could not write output file %s: %s", filename, e)
 
 if __name__ == "__main__":
     main()
