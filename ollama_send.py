@@ -396,9 +396,10 @@ def main():
     parser.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
                         help="Ollama host (default: http://localhost:11434 or env OLLAMA_HOST)")
     parser.add_argument(
-        "-c",
-        "--content-type",
+        "-t",
+        "--type",
         choices=["image", "video", "doc"],
+        dest="type",
         help="Override content type for fetched URLs",
     )
     parser.add_argument("--max-chars", type=int, default=200_000, help="Max chars per text file (before truncation)")
@@ -446,7 +447,7 @@ def main():
             resp = requests.get(url, timeout=60)
             resp.raise_for_status()
             header_ct = resp.headers.get("Content-Type", "")
-            ctype = args.content_type or infer_content_type(header_ct)
+            ctype = args.type or infer_content_type(header_ct)
             name = os.path.basename(urlparse(url).path) or url
 
             if ctype == "image":

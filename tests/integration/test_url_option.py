@@ -69,7 +69,7 @@ def test_url_fetch_manual_type(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["ollama_send.py", "-p", "hi", "--url", "http://example.com", "-c", "image"],
+        ["ollama_send.py", "-p", "hi", "--url", "http://example.com", "-t", "image"],
     )
     ollama_send.main()
     assert len(captured['images']) == 1
