@@ -8,11 +8,21 @@ sys.path.insert(0, str(ROOT))
 
 
 class DummyResponse:
-    def __init__(self, status_code=200, text="", json_data=None, lines=None):
+    def __init__(
+        self,
+        status_code=200,
+        text="",
+        json_data=None,
+        lines=None,
+        content=None,
+        headers=None,
+    ):
         self.status_code = status_code
         self.text = text
         self._json = json_data or {}
         self._lines = lines or []
+        self.content = content if content is not None else text.encode("utf-8")
+        self.headers = headers or {}
 
     def json(self):
         return self._json
@@ -35,5 +45,9 @@ def dummy_post(url, json=None, stream=False, timeout=None):
     return DummyResponse()
 
 
-requests_stub = types.SimpleNamespace(post=dummy_post, Response=DummyResponse)
+def dummy_get(url, timeout=None):
+    return DummyResponse()
+
+
+requests_stub = types.SimpleNamespace(post=dummy_post, get=dummy_get, Response=DummyResponse)
 sys.modules.setdefault("requests", requests_stub)
