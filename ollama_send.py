@@ -383,6 +383,52 @@ def send_with_fallback(
     return ""
 
 
+# ------------------------------- OpenAI ----------------------------------
+
+def send_openai(base_url: str, payload: dict, api_key: str, stream: bool) -> str:
+    """Send payload to OpenAI's Chat Completions API."""
+    url = base_url.rstrip("/") + "/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    try:
+        if stream:
+            buffer: List[str] = []
+            with requests.post(url, headers=headers, json=payload, stream=True, timeout=600) as r:
+                r.raise_for_status()
+                LOG.info("Streaming from OpenAI started ...")
+                for line in r.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        line = line[len("data: "):]
+                    if line.strip() == "[DONE]":
+                        print()
+                        return "".join(buffer)
+                    try:
+                        ev = json.loads(line)
+                    except Exception:
+                        print(line)
+                        continue
+                    chunk = ev.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if chunk:
+                        print(chunk, end="", flush=True)
+                        buffer.append(chunk)
+            return "".join(buffer)
+        else:
+            with requests.post(url, headers=headers, json=payload, timeout=600) as r:
+                r.raise_for_status()
+                data = r.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                print(content)
+                return content
+    except requests.RequestException as e:
+        LOG.error("Request to OpenAI failed: %s", e)
+        print(f"[ERROR] Request to OpenAI failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    return ""
+
+
 # --------------------------------- CLI -----------------------------------
 
 def process_single(args) -> None:
@@ -528,28 +574,49 @@ def process_single(args) -> None:
     user_content = build_user_content(args.prompt, text_attachments, video_notes)
 
     # Payload for /api/chat – IMPORTANT: set stream flag correctly
-    payload = {
-        "model": args.model,
-        "messages": [
-            {
-                "role": "user",
-                "content": user_content,
-            }
-        ],
-        "stream": True if args.stream else False,   # <<< IMPORTANT
-    }
-    if images_b64:
-        payload["messages"][0]["images"] = images_b64
-        LOG.info("Images in payload: %d (including possible video frames)", len(images_b64))
+    if args.backend == "openai":
+        content_parts = [{"type": "text", "text": user_content}]
+        for b64 in images_b64:
+            content_parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+        payload = {
+            "model": args.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": content_parts,
+                }
+            ],
+            "stream": True if args.stream else False,
+        }
+        response = send_openai(
+            args.host,
+            payload,
+            api_key=args.api_key,
+            stream=args.stream,
+        )
+    else:
+        payload = {
+            "model": args.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": user_content,
+                }
+            ],
+            "stream": True if args.stream else False,   # <<< IMPORTANT
+        }
+        if images_b64:
+            payload["messages"][0]["images"] = images_b64
+            LOG.info("Images in payload: %d (including possible video frames)", len(images_b64))
 
-    # Send (with fallback & tracing)
-    response = send_with_fallback(
-        args.host,
-        payload,
-        images_present=bool(images_b64),
-        user_content=user_content,
-        stream=args.stream,
-    )
+        # Send (with fallback & tracing)
+        response = send_with_fallback(
+            args.host,
+            payload,
+            images_present=bool(images_b64),
+            user_content=user_content,
+            stream=args.stream,
+        )
 
     if args.output:
         if args.output is True:
@@ -568,16 +635,18 @@ def process_single(args) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Send a prompt plus files (including MP4) to Ollama.")
+    parser = argparse.ArgumentParser(description="Send a prompt plus files (including MP4) to AI backends.")
     parser.add_argument("-m", "--model", default="llama3.2-vision",
-                        help="Ollama model (e.g. llama3.2-vision, llama3.1, qwen2.5, etc.)")
+                        help="Model name (e.g. llama3.2-vision, gpt-4o, etc.)")
     parser.add_argument("-p", "--prompt", required=True, help="Prompt/user instruction")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-f", "--file", action="append", dest="files", default=[], help="File path (repeatable)")
     group.add_argument("--url", action="append", dest="urls", default=[], help="Fetch URL and include response text (repeatable)")
     parser.add_argument("-d", "--directory", help="Process all files in DIRECTORY individually")
-    parser.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
-                        help="Ollama host (default: http://localhost:11434 or env OLLAMA_HOST)")
+    parser.add_argument("--host", default=None,
+                        help="API host (default: depends on backend)")
+    parser.add_argument("-b", "--backend", choices=["ollama", "openai"], default="ollama",
+                        help="API backend to use")
     parser.add_argument(
         "-t",
         "--type",
@@ -611,13 +680,32 @@ def main():
         args.verbose = max(args.verbose, 2)
     setup_logging(args.verbose)
 
+    if not args.host:
+        if args.backend == "openai":
+            args.host = "https://api.openai.com"
+        else:
+            args.host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+
+    if args.backend == "openai":
+        args.api_key = os.environ.get("OPENAI_AP_KEY")
+        if not args.api_key:
+            LOG.error("OPENAI_AP_KEY environment variable is required for backend 'openai'.")
+            print(
+                "[ERROR] OPENAI_AP_KEY environment variable is required for backend 'openai'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
+        args.api_key = None
+
     LOG.info(
-        "Starting ollama_send | model=%s | host=%s | files=%d | urls=%d | stream=%s",
+        "Starting ollama_send | model=%s | host=%s | files=%d | urls=%d | stream=%s | backend=%s",
         args.model,
         args.host,
         len(args.files),
         len(args.urls),
         args.stream,
+        args.backend,
     )
 
     if args.directory:
