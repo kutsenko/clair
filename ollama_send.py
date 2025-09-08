@@ -624,21 +624,26 @@ def main():
         if not os.path.isdir(args.directory):
             LOG.error("Directory not found: %s", args.directory)
             return
-        file_list = [
-            os.path.join(args.directory, f)
-            for f in sorted(os.listdir(args.directory))
-            if os.path.isfile(os.path.join(args.directory, f))
-        ]
+
+        file_list: List[str] = []
+        for dirpath, _, filenames in os.walk(args.directory):
+            for name in sorted(filenames):
+                file_list.append(os.path.join(dirpath, name))
+
         out_dir = None
         if isinstance(args.output, str):
             out_dir = args.output
             os.makedirs(out_dir, exist_ok=True)
+
         for path in file_list:
             sub_args = argparse.Namespace(**vars(args))
             sub_args.directory = None
             sub_args.files = [path]
             if out_dir:
-                sub_args.output = os.path.join(out_dir, os.path.basename(path) + ".txt")
+                rel_path = os.path.relpath(path, args.directory)
+                out_path = os.path.join(out_dir, rel_path + ".txt")
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                sub_args.output = out_path
             elif not args.output:
                 sub_args.output = True
             process_single(sub_args)
