@@ -224,7 +224,7 @@ def build_user_content(prompt: str, text_attachments: List[Tuple[str, str]], vid
 
 # ------------------------- HTTP + Endpoint-Fallback -----------------------
 
-def _post_json(url: str, payload: dict, *, stream: bool = False, timeout: int = 600) -> requests.Response:
+def _post_json(url: str, payload: dict, *, stream: bool = False, timeout: int = 1200) -> requests.Response:
     LOG.debug("POST %s | stream=%s | timeout=%s", url, stream, timeout)
     LOG.debug("Payload keys: %s", list(payload.keys()))
     start = time.monotonic()
