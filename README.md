@@ -21,6 +21,9 @@ Use `-d`/`--directory` to send every file in a folder **recursively**.
 Each response is written to `<filename>.txt` or, when `-o` points to a
 directory, saved under that directory while preserving the relative path.
 
+For models that only accept single images, enable `--frame-by-frame` to
+send extracted video frames individually and concatenate the responses.
+
 Use `-o`/`--output` to save the model response to a file. When no
 filename is supplied, the first attached file name with `.txt` appended is
 used; if no files are attached, `response.txt` is created.
