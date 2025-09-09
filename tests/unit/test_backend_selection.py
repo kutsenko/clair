@@ -32,3 +32,13 @@ def test_openai_models_exclusive(monkeypatch, capsys):
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "--openai-models cannot be combined" in err
+
+
+def test_huggingface_backend_requires_key(monkeypatch, capsys):
+    monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
+    monkeypatch.setattr(sys, "argv", ["prog", "-p", "hi", "-b", "huggingface"])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "HUGGINGFACE_API_KEY" in err

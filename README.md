@@ -12,8 +12,10 @@ were a file attachment. The content type is auto-detected from the HTTP
 response; override with `-t/--type` (`image`, `video`, `doc`).
 `--url` and `-f/--file` are mutually exclusive.
 
-Select the backend with `-b/--backend` (`ollama` or `openai`). When using the
-OpenAI backend, set the API key via the `OPENAI_API_KEY` environment variable.
+Select the backend with `-b/--backend` (`ollama`, `openai`, or `huggingface`).
+When using the OpenAI backend, set the API key via the `OPENAI_API_KEY`
+environment variable. For the Hugging Face backend, the key is read from the
+`HUGGINGFACE_API_KEY` environment variable.
 Use `--openai-models` to list available models from the OpenAI API; this flag
 may not be combined with other options.
 
