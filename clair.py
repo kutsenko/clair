@@ -385,8 +385,10 @@ def send_with_fallback(
 
 # ------------------------------- OpenAI ----------------------------------
 
-def send_openai(base_url: str, payload: dict, api_key: str, stream: bool) -> str:
-    """Send payload to OpenAI's Chat Completions API."""
+def _send_openai_style(
+    base_url: str, payload: dict, api_key: str, stream: bool, provider: str
+) -> str:
+    """Send payload to an OpenAI-compatible Chat Completions API."""
     url = base_url.rstrip("/") + "/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
@@ -395,7 +397,7 @@ def send_openai(base_url: str, payload: dict, api_key: str, stream: bool) -> str
             buffer: List[str] = []
             with requests.post(url, headers=headers, json=payload, stream=True, timeout=600) as r:
                 r.raise_for_status()
-                LOG.info("Streaming from OpenAI started ...")
+                LOG.info("Streaming from %s started ...", provider)
                 for line in r.iter_lines(decode_unicode=True):
                     if not line:
                         continue
@@ -422,11 +424,21 @@ def send_openai(base_url: str, payload: dict, api_key: str, stream: bool) -> str
                 print(content)
                 return content
     except requests.RequestException as e:
-        LOG.error("Request to OpenAI failed: %s", e)
-        print(f"[ERROR] Request to OpenAI failed: {e}", file=sys.stderr)
+        LOG.error("Request to %s failed: %s", provider, e)
+        print(f"[ERROR] Request to {provider} failed: {e}", file=sys.stderr)
         sys.exit(1)
 
     return ""
+
+
+def send_openai(base_url: str, payload: dict, api_key: str, stream: bool) -> str:
+    """Send payload to OpenAI's Chat Completions API."""
+    return _send_openai_style(base_url, payload, api_key, stream, "OpenAI")
+
+
+def send_huggingface(base_url: str, payload: dict, api_key: str, stream: bool) -> str:
+    """Send payload to Hugging Face's Chat Completions API."""
+    return _send_openai_style(base_url, payload, api_key, stream, "Hugging Face")
 
 
 def list_openai_models(base_url: str, api_key: str) -> None:
@@ -598,7 +610,7 @@ def process_single(args) -> None:
         )
         responses: List[str] = []
         for b64 in images_b64:
-            if args.backend == "openai":
+            if args.backend in ("openai", "huggingface"):
                 content_parts = [{"type": "text", "text": user_content}]
                 content_parts.append(
                     {
@@ -613,12 +625,20 @@ def process_single(args) -> None:
                     ],
                     "stream": True if args.stream else False,
                 }
-                resp = send_openai(
-                    args.host,
-                    payload,
-                    api_key=args.api_key,
-                    stream=args.stream,
-                )
+                if args.backend == "openai":
+                    resp = send_openai(
+                        args.host,
+                        payload,
+                        api_key=args.api_key,
+                        stream=args.stream,
+                    )
+                else:
+                    resp = send_huggingface(
+                        args.host,
+                        payload,
+                        api_key=args.api_key,
+                        stream=args.stream,
+                    )
             else:
                 payload = {
                     "model": args.model,
@@ -642,7 +662,7 @@ def process_single(args) -> None:
         response = "\n".join(responses)
     else:
         # Payload for /api/chat – IMPORTANT: set stream flag correctly
-        if args.backend == "openai":
+        if args.backend in ("openai", "huggingface"):
             content_parts = [{"type": "text", "text": user_content}]
             for b64 in images_b64:
                 content_parts.append(
@@ -658,12 +678,20 @@ def process_single(args) -> None:
                 ],
                 "stream": True if args.stream else False,
             }
-            response = send_openai(
-                args.host,
-                payload,
-                api_key=args.api_key,
-                stream=args.stream,
-            )
+            if args.backend == "openai":
+                response = send_openai(
+                    args.host,
+                    payload,
+                    api_key=args.api_key,
+                    stream=args.stream,
+                )
+            else:
+                response = send_huggingface(
+                    args.host,
+                    payload,
+                    api_key=args.api_key,
+                    stream=args.stream,
+                )
         else:
             payload = {
                 "model": args.model,
@@ -718,7 +746,7 @@ def main():
     parser.add_argument("-d", "--directory", help="Process all files in DIRECTORY individually")
     parser.add_argument("--host", default=None,
                         help="API host (default: depends on backend)")
-    parser.add_argument("-b", "--backend", choices=["ollama", "openai"], default="ollama",
+    parser.add_argument("-b", "--backend", choices=["ollama", "openai", "huggingface"], default="ollama",
                         help="API backend to use")
     parser.add_argument(
         "--openai-models",
@@ -782,6 +810,8 @@ def main():
     if not args.host:
         if args.backend == "openai":
             args.host = "https://api.openai.com"
+        elif args.backend == "huggingface":
+            args.host = "https://api-inference.huggingface.co"
         else:
             args.host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
@@ -791,6 +821,15 @@ def main():
             LOG.error("OPENAI_API_KEY environment variable is required for backend 'openai'.")
             print(
                 "[ERROR] OPENAI_API_KEY environment variable is required for backend 'openai'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    elif args.backend == "huggingface":
+        args.api_key = os.environ.get("HUGGINGFACE_API_KEY")
+        if not args.api_key:
+            LOG.error("HUGGINGFACE_API_KEY environment variable is required for backend 'huggingface'.")
+            print(
+                "[ERROR] HUGGINGFACE_API_KEY environment variable is required for backend 'huggingface'.",
                 file=sys.stderr,
             )
             sys.exit(1)
