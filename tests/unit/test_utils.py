@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from ollama_send import is_image, is_video, read_text_file, build_user_content
+from clair import is_image, is_video, read_text_file, build_user_content
 
 
 def test_is_image_and_video_detection():

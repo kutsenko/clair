@@ -1,6 +1,6 @@
 import sys
 
-import ollama_send
+import clair
 
 
 def test_directory_processes_files(tmp_path, monkeypatch):
@@ -15,16 +15,16 @@ def test_directory_processes_files(tmp_path, monkeypatch):
                 return responses[name]
         return ""
 
-    monkeypatch.setattr(ollama_send, "send_with_fallback", fake_send)
+    monkeypatch.setattr(clair, "send_with_fallback", fake_send)
 
     dir_path = tmp_path / "files"
     dir_path.mkdir()
     for name in responses:
         (dir_path / name).write_text("data", encoding="utf-8")
 
-    monkeypatch.setattr(sys, "argv", ["ollama_send.py", "-p", "hi", "-d", str(dir_path)])
+    monkeypatch.setattr(sys, "argv", ["clair.py", "-p", "hi", "-d", str(dir_path)])
     monkeypatch.chdir(tmp_path)
-    ollama_send.main()
+    clair.main()
 
     for name, resp in responses.items():
         outfile = dir_path / f"{name}.txt"
@@ -42,7 +42,7 @@ def test_directory_recurses(tmp_path, monkeypatch):
                 return resp
         return ""
 
-    monkeypatch.setattr(ollama_send, "send_with_fallback", fake_send)
+    monkeypatch.setattr(clair, "send_with_fallback", fake_send)
 
     root = tmp_path / "files"
     (root / "sub").mkdir(parents=True)
@@ -54,10 +54,10 @@ def test_directory_recurses(tmp_path, monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["ollama_send.py", "-p", "hi", "-d", str(root), "-o", str(out_dir)],
+        ["clair.py", "-p", "hi", "-d", str(root), "-o", str(out_dir)],
     )
     monkeypatch.chdir(tmp_path)
-    ollama_send.main()
+    clair.main()
 
     assert (out_dir / "a.txt.txt").read_text(encoding="utf-8") == "resp_a"
     assert (out_dir / "sub" / "b.txt.txt").read_text(encoding="utf-8") == "resp_b"

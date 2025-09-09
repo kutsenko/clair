@@ -1,7 +1,7 @@
 import sys
 import pytest
 
-from ollama_send import main
+from clair import main
 
 
 def test_openai_backend_requires_key(monkeypatch, capsys):

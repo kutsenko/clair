@@ -31,7 +31,7 @@ import requests
 
 # --------------------------- Logging / Tracing ---------------------------
 
-LOG = logging.getLogger("ollama_send")
+LOG = logging.getLogger("clair")
 
 def setup_logging(verbosity: int) -> None:
     """
@@ -798,7 +798,7 @@ def main():
         args.api_key = None
 
     LOG.info(
-        "Starting ollama_send | model=%s | host=%s | files=%d | urls=%d | stream=%s | backend=%s",
+        "Starting clair | model=%s | host=%s | files=%d | urls=%d | stream=%s | backend=%s",
         args.model,
         args.host,
         len(args.files),

@@ -1,6 +1,6 @@
 import sys
 import pytest
-import ollama_send
+import clair
 from tests.conftest import DummyResponse
 
 
@@ -14,10 +14,10 @@ def test_url_fetch(monkeypatch):
         captured['content'] = user_content
         return "ok"
 
-    monkeypatch.setattr(ollama_send.requests, "get", fake_get)
-    monkeypatch.setattr(ollama_send, "send_with_fallback", fake_send)
-    monkeypatch.setattr(sys, "argv", ["ollama_send.py", "-p", "hi", "--url", "http://example.com"])
-    ollama_send.main()
+    monkeypatch.setattr(clair.requests, "get", fake_get)
+    monkeypatch.setattr(clair, "send_with_fallback", fake_send)
+    monkeypatch.setattr(sys, "argv", ["clair.py", "-p", "hi", "--url", "http://example.com"])
+    clair.main()
     assert "webdata" in captured['content']
 
 
@@ -27,10 +27,10 @@ def test_url_conflicts_with_file(tmp_path, monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["ollama_send.py", "-p", "hi", "-f", str(f), "--url", "http://example.com"],
+        ["clair.py", "-p", "hi", "-f", str(f), "--url", "http://example.com"],
     )
     with pytest.raises(SystemExit):
-        ollama_send.main()
+        clair.main()
 
 
 def test_url_fetch_image_auto(monkeypatch):
@@ -45,10 +45,10 @@ def test_url_fetch_image_auto(monkeypatch):
         captured['images'] = payload['messages'][0].get('images', [])
         return "ok"
 
-    monkeypatch.setattr(ollama_send.requests, "get", fake_get)
-    monkeypatch.setattr(ollama_send, "send_with_fallback", fake_send)
-    monkeypatch.setattr(sys, "argv", ["ollama_send.py", "-p", "hi", "--url", "http://img"])
-    ollama_send.main()
+    monkeypatch.setattr(clair.requests, "get", fake_get)
+    monkeypatch.setattr(clair, "send_with_fallback", fake_send)
+    monkeypatch.setattr(sys, "argv", ["clair.py", "-p", "hi", "--url", "http://img"])
+    clair.main()
     assert len(captured['images']) == 1
 
 
@@ -64,13 +64,13 @@ def test_url_fetch_manual_type(monkeypatch):
         captured['images'] = payload['messages'][0].get('images', [])
         return "ok"
 
-    monkeypatch.setattr(ollama_send.requests, "get", fake_get)
-    monkeypatch.setattr(ollama_send, "send_with_fallback", fake_send)
+    monkeypatch.setattr(clair.requests, "get", fake_get)
+    monkeypatch.setattr(clair, "send_with_fallback", fake_send)
     monkeypatch.setattr(
         sys,
         "argv",
-        ["ollama_send.py", "-p", "hi", "--url", "http://example.com", "-t", "image"],
+        ["clair.py", "-p", "hi", "--url", "http://example.com", "-t", "image"],
     )
-    ollama_send.main()
+    clair.main()
     assert len(captured['images']) == 1
 
