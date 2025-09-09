@@ -591,50 +591,105 @@ def process_single(args) -> None:
 
     user_content = build_user_content(args.prompt, text_attachments, video_notes)
 
-    # Payload for /api/chat – IMPORTANT: set stream flag correctly
-    if args.backend == "openai":
-        content_parts = [{"type": "text", "text": user_content}]
+    # Optional frame-by-frame mode: send each image separately
+    if args.frame_by_frame and images_b64:
+        LOG.info(
+            "Frame-by-frame mode enabled: sending %d images individually", len(images_b64)
+        )
+        responses: List[str] = []
         for b64 in images_b64:
-            content_parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
-        payload = {
-            "model": args.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": content_parts,
+            if args.backend == "openai":
+                content_parts = [{"type": "text", "text": user_content}]
+                content_parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                    }
+                )
+                payload = {
+                    "model": args.model,
+                    "messages": [
+                        {"role": "user", "content": content_parts}
+                    ],
+                    "stream": True if args.stream else False,
                 }
-            ],
-            "stream": True if args.stream else False,
-        }
-        response = send_openai(
-            args.host,
-            payload,
-            api_key=args.api_key,
-            stream=args.stream,
-        )
+                resp = send_openai(
+                    args.host,
+                    payload,
+                    api_key=args.api_key,
+                    stream=args.stream,
+                )
+            else:
+                payload = {
+                    "model": args.model,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": user_content,
+                            "images": [b64],
+                        }
+                    ],
+                    "stream": True if args.stream else False,  # <<< IMPORTANT
+                }
+                resp = send_with_fallback(
+                    args.host,
+                    payload,
+                    images_present=True,
+                    user_content=user_content,
+                    stream=args.stream,
+                )
+            responses.append(resp)
+        response = "\n".join(responses)
     else:
-        payload = {
-            "model": args.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": user_content,
-                }
-            ],
-            "stream": True if args.stream else False,   # <<< IMPORTANT
-        }
-        if images_b64:
-            payload["messages"][0]["images"] = images_b64
-            LOG.info("Images in payload: %d (including possible video frames)", len(images_b64))
+        # Payload for /api/chat – IMPORTANT: set stream flag correctly
+        if args.backend == "openai":
+            content_parts = [{"type": "text", "text": user_content}]
+            for b64 in images_b64:
+                content_parts.append(
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+                )
+            payload = {
+                "model": args.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": content_parts,
+                    }
+                ],
+                "stream": True if args.stream else False,
+            }
+            response = send_openai(
+                args.host,
+                payload,
+                api_key=args.api_key,
+                stream=args.stream,
+            )
+        else:
+            payload = {
+                "model": args.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": user_content,
+                    }
+                ],
+                "stream": True if args.stream else False,   # <<< IMPORTANT
+            }
+            if images_b64:
+                payload["messages"][0]["images"] = images_b64
+                LOG.info(
+                    "Images in payload: %d (including possible video frames)",
+                    len(images_b64),
+                )
 
-        # Send (with fallback & tracing)
-        response = send_with_fallback(
-            args.host,
-            payload,
-            images_present=bool(images_b64),
-            user_content=user_content,
-            stream=args.stream,
-        )
+            # Send (with fallback & tracing)
+            response = send_with_fallback(
+                args.host,
+                payload,
+                images_present=bool(images_b64),
+                user_content=user_content,
+                stream=args.stream,
+            )
 
     if args.output:
         if args.output is True:
@@ -682,6 +737,11 @@ def main():
     parser.add_argument("--stream", action="store_true", help="Stream response as server-sent events")
     parser.add_argument("--video-max-frames", type=int, default=8, help="Max extracted frames per video")
     parser.add_argument("--video-width", type=int, default=640, help="Width to resize frames (0=off)")
+    parser.add_argument(
+        "--frame-by-frame",
+        action="store_true",
+        help="Send images/video frames individually and join responses",
+    )
     parser.add_argument(
         "-o",
         "--output",
