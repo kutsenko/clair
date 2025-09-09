@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from ollama_send import send_with_fallback
+from clair import send_with_fallback
 from tests.conftest import DummyResponse
 
 
@@ -20,7 +20,7 @@ def test_fallback_to_generate_on_404(capsys):
     def fake_post(url, json=None, stream=False, timeout=None):
         return responses.pop(0)
 
-    with patch("ollama_send.requests.post", side_effect=fake_post):
+    with patch("clair.requests.post", side_effect=fake_post):
         send_with_fallback(base_url, payload_chat, images_present=False, user_content="hello", stream=False)
 
     captured = capsys.readouterr()
@@ -42,7 +42,7 @@ def test_chat_endpoint_success(capsys):
     def fake_post(url, json=None, stream=False, timeout=None):
         return responses.pop(0)
 
-    with patch("ollama_send.requests.post", side_effect=fake_post):
+    with patch("clair.requests.post", side_effect=fake_post):
         send_with_fallback(base_url, payload_chat, images_present=False, user_content="hi", stream=False)
 
     captured = capsys.readouterr()

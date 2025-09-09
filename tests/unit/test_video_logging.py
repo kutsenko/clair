@@ -3,7 +3,7 @@ import logging
 import types
 import sys
 
-from ollama_send import extract_video_frames_b64
+from clair import extract_video_frames_b64
 
 
 def test_extract_video_frames_logging(monkeypatch, caplog):
@@ -37,7 +37,7 @@ def test_extract_video_frames_logging(monkeypatch, caplog):
         INTER_AREA=0,
     )
     monkeypatch.setitem(sys.modules, "cv2", dummy_cv2)
-    with caplog.at_level(logging.INFO, logger="ollama_send"):
+    with caplog.at_level(logging.INFO, logger="clair"):
         frames = extract_video_frames_b64("video.mp4", max_frames=1)
     assert frames == [base64.b64encode(b"data").decode("ascii")]
     assert "Extracted 1 frames from 'video.mp4'" in caplog.text

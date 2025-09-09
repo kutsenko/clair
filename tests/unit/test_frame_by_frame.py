@@ -1,6 +1,6 @@
 import sys
 
-import ollama_send
+import clair
 
 
 def test_frame_by_frame_mode(monkeypatch, tmp_path, capsys):
@@ -10,7 +10,7 @@ def test_frame_by_frame_mode(monkeypatch, tmp_path, capsys):
 
     # Mock frame extraction to return two frames
     monkeypatch.setattr(
-        ollama_send,
+        clair,
         "extract_video_frames_b64",
         lambda *args, **kwargs: ["f1", "f2"],
     )
@@ -24,15 +24,15 @@ def test_frame_by_frame_mode(monkeypatch, tmp_path, capsys):
         print(result)
         return result
 
-    monkeypatch.setattr(ollama_send, "send_with_fallback", fake_send)
+    monkeypatch.setattr(clair, "send_with_fallback", fake_send)
     monkeypatch.setattr(
         sys,
         "argv",
-        ["ollama_send.py", "-p", "hi", "-f", str(video), "--frame-by-frame"],
+        ["clair.py", "-p", "hi", "-f", str(video), "--frame-by-frame"],
     )
     monkeypatch.chdir(tmp_path)
 
-    ollama_send.main()
+    clair.main()
 
     # Ensure one request per frame
     assert len(calls) == 2
