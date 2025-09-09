@@ -429,6 +429,24 @@ def send_openai(base_url: str, payload: dict, api_key: str, stream: bool) -> str
     return ""
 
 
+def list_openai_models(base_url: str, api_key: str) -> None:
+    """Fetch and print available model IDs from OpenAI's API."""
+    url = base_url.rstrip("/") + "/v1/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        for item in data.get("data", []):
+            model_id = item.get("id")
+            if model_id:
+                print(model_id)
+    except requests.RequestException as e:
+        LOG.error("Request to OpenAI models endpoint failed: %s", e)
+        print(f"[ERROR] Request to OpenAI models endpoint failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 # --------------------------------- CLI -----------------------------------
 
 def process_single(args) -> None:
@@ -638,7 +656,7 @@ def main():
     parser = argparse.ArgumentParser(description="Send a prompt plus files (including MP4) to AI backends.")
     parser.add_argument("-m", "--model", default="llama3.2-vision",
                         help="Model name (e.g. llama3.2-vision, gpt-4o, etc.)")
-    parser.add_argument("-p", "--prompt", required=True, help="Prompt/user instruction")
+    parser.add_argument("-p", "--prompt", help="Prompt/user instruction")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-f", "--file", action="append", dest="files", default=[], help="File path (repeatable)")
     group.add_argument("--url", action="append", dest="urls", default=[], help="Fetch URL and include response text (repeatable)")
@@ -647,6 +665,11 @@ def main():
                         help="API host (default: depends on backend)")
     parser.add_argument("-b", "--backend", choices=["ollama", "openai"], default="ollama",
                         help="API backend to use")
+    parser.add_argument(
+        "--openai-models",
+        action="store_true",
+        help="List available OpenAI models and exit (no other args allowed)",
+    )
     parser.add_argument(
         "-t",
         "--type",
@@ -680,6 +703,22 @@ def main():
         args.verbose = max(args.verbose, 2)
     setup_logging(args.verbose)
 
+    if args.openai_models:
+        if len(sys.argv) > 2:
+            parser.error("--openai-models cannot be combined with other arguments")
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            print(
+                "[ERROR] OPENAI_API_KEY environment variable is required to list models.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        list_openai_models("https://api.openai.com", api_key)
+        return
+
+    if not args.prompt:
+        parser.error("the following arguments are required: -p/--prompt")
+
     if not args.host:
         if args.backend == "openai":
             args.host = "https://api.openai.com"
@@ -687,11 +726,11 @@ def main():
             args.host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
     if args.backend == "openai":
-        args.api_key = os.environ.get("OPENAI_AP_KEY")
+        args.api_key = os.environ.get("OPENAI_API_KEY")
         if not args.api_key:
-            LOG.error("OPENAI_AP_KEY environment variable is required for backend 'openai'.")
+            LOG.error("OPENAI_API_KEY environment variable is required for backend 'openai'.")
             print(
-                "[ERROR] OPENAI_AP_KEY environment variable is required for backend 'openai'.",
+                "[ERROR] OPENAI_API_KEY environment variable is required for backend 'openai'.",
                 file=sys.stderr,
             )
             sys.exit(1)

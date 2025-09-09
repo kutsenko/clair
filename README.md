@@ -13,7 +13,9 @@ response; override with `-t/--type` (`image`, `video`, `doc`).
 `--url` and `-f/--file` are mutually exclusive.
 
 Select the backend with `-b/--backend` (`ollama` or `openai`). When using the
-OpenAI backend, set the API key via the `OPENAI_AP_KEY` environment variable.
+OpenAI backend, set the API key via the `OPENAI_API_KEY` environment variable.
+Use `--openai-models` to list available models from the OpenAI API; this flag
+may not be combined with other options.
 
 Use `-d`/`--directory` to send every file in a folder **recursively**.
 Each response is written to `<filename>.txt` or, when `-o` points to a
