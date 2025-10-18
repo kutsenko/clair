@@ -23,7 +23,8 @@ import os
 import sys
 import tempfile
 import time
-from typing import List, Tuple, Optional
+from importlib import import_module, util
+from typing import Any, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
@@ -56,16 +57,23 @@ def setup_logging(verbosity: int) -> None:
 
 # ---------------------- Optional parsers for PDF/DOCX --------------------
 
+def _optional_import(module_name: str) -> Optional[Any]:
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    if util.find_spec(module_name) is None:
+        return None
+    return import_module(module_name)
+
+
 def try_extract_pdf_text(path: str) -> str:
-    try:
-        import PyPDF2  # type: ignore
-    except Exception:
+    module = _optional_import("PyPDF2")
+    if module is None:
         LOG.debug("PyPDF2 not installed – PDF will not be extracted.")
         return ""
     try:
         text = []
         with open(path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
+            reader = module.PdfReader(f)
             for page in reader.pages:
                 text.append(page.extract_text() or "")
         out = "\n".join(text).strip()
@@ -77,15 +85,14 @@ def try_extract_pdf_text(path: str) -> str:
 
 
 def try_extract_docx_text(path: str) -> str:
-    try:
-        import docx  # python-docx
-    except Exception:
+    module = _optional_import("docx")
+    if module is None:
         LOG.debug("python-docx not installed – DOCX will not be extracted.")
         return ""
     try:
         with open(path, "rb") as f:
             blob = f.read()  # ensure closing
-        doc = docx.Document(io.BytesIO(blob))  # no open file handle
+        doc = module.Document(io.BytesIO(blob))  # no open file handle
         out = "\n".join(p.text for p in doc.paragraphs).strip()
         LOG.info("Extracted DOCX text: %s (%d chars)", os.path.basename(path), len(out))
         return out
@@ -105,20 +112,19 @@ def extract_video_frames_b64(
     Extracts up to max_frames evenly distributed frames and returns them
     as base64-encoded PNG strings. Requires opencv-python.
     """
-    try:
-        import cv2  # type: ignore
-    except Exception as e:
-        LOG.error("opencv-python is required for video frames: %s", e)
+    cv2_module = _optional_import("cv2")
+    if cv2_module is None:
+        LOG.error("opencv-python is required for video frames.")
         return []
 
     LOG.info("Video detected, extracting frames: %s", path)
-    cap = cv2.VideoCapture(path)
+    cap = cv2_module.VideoCapture(path)
     if not cap.isOpened():
         LOG.error("Could not open video: %s", path)
         return []
 
     try:
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        frame_count = int(cap.get(cv2_module.CAP_PROP_FRAME_COUNT) or 0)
         if frame_count <= 0:
             LOG.error("No valid frames in: %s", path)
             return []
@@ -128,21 +134,24 @@ def extract_video_frames_b64(
 
         images_b64: List[str] = []
         for idx in indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            cap.set(cv2_module.CAP_PROP_POS_FRAMES, idx)
             ok, frame = cap.read()
             if not ok or frame is None:
                 LOG.debug("Frame %d could not be read.", idx)
                 continue
 
             if target_width and frame.shape[1] > target_width:
-                import cv2  # ensure in scope
                 h, w = frame.shape[:2]
                 scale = target_width / float(w)
                 new_w = target_width
                 new_h = int(h * scale)
-                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                frame = cv2_module.resize(
+                    frame,
+                    (new_w, new_h),
+                    interpolation=cv2_module.INTER_AREA,
+                )
 
-            ok, buf = cv2.imencode(".png", frame)
+            ok, buf = cv2_module.imencode(".png", frame)
             if not ok:
                 LOG.debug("Frame %d could not be encoded as PNG.", idx)
                 continue
