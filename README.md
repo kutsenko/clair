@@ -28,8 +28,8 @@ pip install -r requirements.txt
 
 Install these extras when you need richer file handling:
 
-- `PyPDF2` – enables text extraction from PDF attachments so their contents can be sent to the selected backend.
-- `python-docx` – parses DOCX files and pulls paragraph text for inclusion in prompts.
+- `PyPDF2` – used with `--extract-text` to pull PDF contents into prompts before sending them to the selected backend.
+- `python-docx` – used with `--extract-text` to parse DOCX files and include paragraph text inline.
 - `opencv-python` – extracts representative PNG frames from video files when using `--frame-by-frame` processing.
 
 ## Usage
@@ -68,3 +68,7 @@ send extracted video frames individually and concatenate the responses.
 Use `-o`/`--output` to save the model response to a file. When no
 filename is supplied, the first attached file name with `.txt` appended is
 used; if no files are attached, `response.txt` is created.
+
+By default the CLI lets the selected AI model interpret attached documents.
+Use `--extract-text` when you prefer to run local extraction tools (PDF via
+PyPDF2, DOCX via python-docx) before embedding the contents into the prompt.
