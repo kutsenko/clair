@@ -1,5 +1,4 @@
-# ai-cli
-KI-Agenten CLI-Tools
+# KI CLI-Tools
 
 ## Installation
 

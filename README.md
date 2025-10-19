@@ -1,5 +1,4 @@
-# ai-cli
-Clair (AI CLI Tools)
+# CLAIR (AI CLI Tools)
 
 German version: [README.de.md](README.de.md)
 
