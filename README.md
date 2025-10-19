@@ -24,6 +24,14 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+### Optional dependencies
+
+Install these extras when you need richer file handling:
+
+- `PyPDF2` – enables text extraction from PDF attachments so their contents can be sent to the selected backend.
+- `python-docx` – parses DOCX files and pulls paragraph text for inclusion in prompts.
+- `opencv-python` – extracts representative PNG frames from video files when using `--frame-by-frame` processing.
+
 ## Usage
 
 After activating the virtual environment, run the CLI as shown below:
