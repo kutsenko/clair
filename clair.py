@@ -34,6 +34,7 @@ import requests
 
 LOG = logging.getLogger("clair")
 
+
 def setup_logging(verbosity: int) -> None:
     """
     verbosity 0 = WARNING, 1 = INFO, 2+ = DEBUG
@@ -56,6 +57,7 @@ def setup_logging(verbosity: int) -> None:
 
 
 # ---------------------- Optional parsers for PDF/DOCX --------------------
+
 
 def _optional_import(module_name: str) -> Optional[Any]:
     if module_name in sys.modules:
@@ -103,6 +105,7 @@ def try_extract_docx_text(path: str) -> str:
 
 # -------------------- Video (MP4) -> Frames (base64 PNG) -----------------
 
+
 def extract_video_frames_b64(
     path: str,
     max_frames: int = 8,
@@ -130,7 +133,11 @@ def extract_video_frames_b64(
             return []
 
         num = max(1, min(max_frames, frame_count))
-        indices = [int(i * (frame_count - 1) / (num - 1)) for i in range(num)] if num > 1 else [0]
+        indices = (
+            [int(i * (frame_count - 1) / (num - 1)) for i in range(num)]
+            if num > 1
+            else [0]
+        )
 
         images_b64: List[str] = []
         for idx in indices:
@@ -173,16 +180,39 @@ def extract_video_frames_b64(
 # ------------------------------ Utilities --------------------------------
 
 TEXT_LIKE_EXT = {
-    ".txt", ".md", ".csv", ".tsv", ".json", ".yaml", ".yml", ".xml",
-    ".html", ".htm", ".css", ".js", ".ts", ".py", ".java", ".go", ".rs",
-    ".c", ".cpp", ".h", ".hpp", ".ini", ".conf", ".log"
+    ".txt",
+    ".md",
+    ".csv",
+    ".tsv",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".html",
+    ".htm",
+    ".css",
+    ".js",
+    ".ts",
+    ".py",
+    ".java",
+    ".go",
+    ".rs",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".ini",
+    ".conf",
+    ".log",
 }
 VIDEO_EXT = {".mp4"}  # extend as needed: .mov, .mkv ...
 IMAGE_MIME_PREFIXES = ("image/",)
 
+
 def is_image(path: str) -> bool:
     mime, _ = mimetypes.guess_type(path)
     return bool(mime and mime.startswith(IMAGE_MIME_PREFIXES))
+
 
 def is_video(path: str) -> bool:
     _, ext = os.path.splitext(path)
@@ -197,7 +227,10 @@ def infer_content_type(header: str) -> str:
         return "video"
     return "doc"
 
-def read_text_file(path: str, encoding: str = "utf-8", max_chars: int = 200_000) -> Tuple[str, bool]:
+
+def read_text_file(
+    path: str, encoding: str = "utf-8", max_chars: int = 200_000
+) -> Tuple[str, bool]:
     try:
         with open(path, "r", encoding=encoding, errors="replace") as f:
             data = f.read()
@@ -205,12 +238,17 @@ def read_text_file(path: str, encoding: str = "utf-8", max_chars: int = 200_000)
         if len(data) > max_chars:
             data = data[:max_chars] + "\n\n[... truncated ...]"
             truncated = True
-        LOG.info("Read text file: %s (%d chars%s)",
-                 os.path.basename(path), len(data), ", truncated" if truncated else "")
+        LOG.info(
+            "Read text file: %s (%d chars%s)",
+            os.path.basename(path),
+            len(data),
+            ", truncated" if truncated else "",
+        )
         return data, truncated
     except Exception as e:
         LOG.warning("Failed to read as text (%s): %s", path, e)
         return f"[ERROR reading as text: {e}]", False
+
 
 def to_base64(path: str) -> str:
     with open(path, "rb") as f:
@@ -218,7 +256,10 @@ def to_base64(path: str) -> str:
     LOG.debug("File base64-encoded: %s (%d bytes)", os.path.basename(path), len(blob))
     return base64.b64encode(blob).decode("ascii")
 
-def build_user_content(prompt: str, text_attachments: List[Tuple[str, str]], video_notes: List[str]) -> str:
+
+def build_user_content(
+    prompt: str, text_attachments: List[Tuple[str, str]], video_notes: List[str]
+) -> str:
     parts = [prompt]
     if text_attachments:
         parts.append("\n\n---\n### Attachments (Text)")
@@ -233,7 +274,10 @@ def build_user_content(prompt: str, text_attachments: List[Tuple[str, str]], vid
 
 # ------------------------- HTTP + Endpoint-Fallback -----------------------
 
-def _post_json(url: str, payload: dict, *, stream: bool = False, timeout: int = 1200) -> requests.Response:
+
+def _post_json(
+    url: str, payload: dict, *, stream: bool = False, timeout: int = 1200
+) -> requests.Response:
     LOG.debug("POST %s | stream=%s | timeout=%s", url, stream, timeout)
     LOG.debug("Payload keys: %s", list(payload.keys()))
     start = time.monotonic()
@@ -251,6 +295,7 @@ def _post_json(url: str, payload: dict, *, stream: bool = False, timeout: int = 
         LOG.warning("Error body (%s):\n---\n%s\n---", url, body)
     return resp
 
+
 def _read_nonstream_json_fallback(resp: requests.Response) -> dict:
     """
     Robust against misconfigured streaming servers: tries resp.json() first,
@@ -266,6 +311,7 @@ def _read_nonstream_json_fallback(resp: requests.Response) -> dict:
             except Exception:
                 continue
         raise
+
 
 def send_with_fallback(
     base_url: str,
@@ -283,7 +329,7 @@ def send_with_fallback(
     """
     base_url = base_url.rstrip("/")
     chat_url = base_url + "/api/chat"
-    gen_url  = base_url + "/api/generate"
+    gen_url = base_url + "/api/generate"
 
     # 1) /api/chat
     try:
@@ -294,13 +340,19 @@ def send_with_fallback(
                     body = r.text.lower()
                     if "model" in body and "not found" in body:
                         model = payload_chat.get("model", "<unknown>")
-                        LOG.error("Model '%s' not found. Please run: ollama pull %s", model, model)
+                        LOG.error(
+                            "Model '%s' not found. Please run: ollama pull %s",
+                            model,
+                            model,
+                        )
                         print(
                             f"[ERROR] Model '{model}' not found. Please run 'ollama pull {model}'.",
                             file=sys.stderr,
                         )
                         return ""
-                    LOG.info("Endpoint /api/chat not available – falling back to /api/generate.")
+                    LOG.info(
+                        "Endpoint /api/chat not available – falling back to /api/generate."
+                    )
                 else:
                     r.raise_for_status()
                     LOG.info("Streaming from /api/chat started ...")
@@ -325,13 +377,19 @@ def send_with_fallback(
                     body = r.text.lower()
                     if "model" in body and "not found" in body:
                         model = payload_chat.get("model", "<unknown>")
-                        LOG.error("Model '%s' not found. Please run: ollama pull %s", model, model)
+                        LOG.error(
+                            "Model '%s' not found. Please run: ollama pull %s",
+                            model,
+                            model,
+                        )
                         print(
                             f"[ERROR] Model '{model}' not found. Please run 'ollama pull {model}'.",
                             file=sys.stderr,
                         )
                         return ""
-                    LOG.info("Endpoint /api/chat not available – falling back to /api/generate.")
+                    LOG.info(
+                        "Endpoint /api/chat not available – falling back to /api/generate."
+                    )
                 else:
                     r.raise_for_status()
                     data = _read_nonstream_json_fallback(r)
@@ -394,6 +452,7 @@ def send_with_fallback(
 
 # ------------------------------- OpenAI ----------------------------------
 
+
 def _send_openai_style(
     base_url: str, payload: dict, api_key: str, stream: bool, provider: str
 ) -> str:
@@ -404,14 +463,16 @@ def _send_openai_style(
     try:
         if stream:
             buffer: List[str] = []
-            with requests.post(url, headers=headers, json=payload, stream=True, timeout=600) as r:
+            with requests.post(
+                url, headers=headers, json=payload, stream=True, timeout=600
+            ) as r:
                 r.raise_for_status()
                 LOG.info("Streaming from %s started ...", provider)
                 for line in r.iter_lines(decode_unicode=True):
                     if not line:
                         continue
                     if line.startswith("data: "):
-                        line = line[len("data: "):]
+                        line = line[len("data: ") :]
                     if line.strip() == "[DONE]":
                         print()
                         return "".join(buffer)
@@ -420,7 +481,9 @@ def _send_openai_style(
                     except Exception:
                         print(line)
                         continue
-                    chunk = ev.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    chunk = (
+                        ev.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    )
                     if chunk:
                         print(chunk, end="", flush=True)
                         buffer.append(chunk)
@@ -429,7 +492,9 @@ def _send_openai_style(
             with requests.post(url, headers=headers, json=payload, timeout=600) as r:
                 r.raise_for_status()
                 data = r.json()
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                content = (
+                    data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                )
                 print(content)
                 return content
     except requests.RequestException as e:
@@ -448,6 +513,11 @@ def send_openai(base_url: str, payload: dict, api_key: str, stream: bool) -> str
 def send_huggingface(base_url: str, payload: dict, api_key: str, stream: bool) -> str:
     """Send payload to Hugging Face's Chat Completions API."""
     return _send_openai_style(base_url, payload, api_key, stream, "Hugging Face")
+
+
+def send_xai(base_url: str, payload: dict, api_key: str, stream: bool) -> str:
+    """Send payload to xAI's Grok Chat Completions API."""
+    return _send_openai_style(base_url, payload, api_key, stream, "xAI")
 
 
 def list_openai_models(base_url: str, api_key: str) -> None:
@@ -469,6 +539,7 @@ def list_openai_models(base_url: str, api_key: str) -> None:
 
 
 # --------------------------------- CLI -----------------------------------
+
 
 def process_single(args) -> None:
     images_b64: List[str] = []
@@ -536,7 +607,7 @@ def process_single(args) -> None:
 
             truncated = False
             if len(content) > args.max_chars:
-                content = content[:args.max_chars] + "\n\n[... truncated ...]"
+                content = content[: args.max_chars] + "\n\n[... truncated ...]"
                 truncated = True
             text_attachments.append((name, content))
             LOG.info(
@@ -594,7 +665,7 @@ def process_single(args) -> None:
             extracted = try_extract_pdf_text(path)
             if extracted:
                 if len(extracted) > args.max_chars:
-                    extracted = extracted[:args.max_chars] + "\n\n[... truncated ...]"
+                    extracted = extracted[: args.max_chars] + "\n\n[... truncated ...]"
                 text_attachments.append((os.path.basename(path), extracted))
                 continue
 
@@ -602,7 +673,7 @@ def process_single(args) -> None:
             extracted = try_extract_docx_text(path)
             if extracted:
                 if len(extracted) > args.max_chars:
-                    extracted = extracted[:args.max_chars] + "\n\n[... truncated ...]"
+                    extracted = extracted[: args.max_chars] + "\n\n[... truncated ...]"
                 text_attachments.append((os.path.basename(path), extracted))
                 continue
 
@@ -615,11 +686,12 @@ def process_single(args) -> None:
     # Optional frame-by-frame mode: send each image separately
     if args.frame_by_frame and images_b64:
         LOG.info(
-            "Frame-by-frame mode enabled: sending %d images individually", len(images_b64)
+            "Frame-by-frame mode enabled: sending %d images individually",
+            len(images_b64),
         )
         responses: List[str] = []
         for b64 in images_b64:
-            if args.backend in ("openai", "huggingface"):
+            if args.backend in ("openai", "huggingface", "xai"):
                 content_parts = [{"type": "text", "text": user_content}]
                 content_parts.append(
                     {
@@ -629,9 +701,7 @@ def process_single(args) -> None:
                 )
                 payload = {
                     "model": args.model,
-                    "messages": [
-                        {"role": "user", "content": content_parts}
-                    ],
+                    "messages": [{"role": "user", "content": content_parts}],
                     "stream": True if args.stream else False,
                 }
                 if args.backend == "openai":
@@ -641,8 +711,15 @@ def process_single(args) -> None:
                         api_key=args.api_key,
                         stream=args.stream,
                     )
-                else:
+                elif args.backend == "huggingface":
                     resp = send_huggingface(
+                        args.host,
+                        payload,
+                        api_key=args.api_key,
+                        stream=args.stream,
+                    )
+                else:
+                    resp = send_xai(
                         args.host,
                         payload,
                         api_key=args.api_key,
@@ -671,11 +748,14 @@ def process_single(args) -> None:
         response = "\n".join(responses)
     else:
         # Payload for /api/chat – IMPORTANT: set stream flag correctly
-        if args.backend in ("openai", "huggingface"):
+        if args.backend in ("openai", "huggingface", "xai"):
             content_parts = [{"type": "text", "text": user_content}]
             for b64 in images_b64:
                 content_parts.append(
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                    }
                 )
             payload = {
                 "model": args.model,
@@ -694,8 +774,15 @@ def process_single(args) -> None:
                     api_key=args.api_key,
                     stream=args.stream,
                 )
-            else:
+            elif args.backend == "huggingface":
                 response = send_huggingface(
+                    args.host,
+                    payload,
+                    api_key=args.api_key,
+                    stream=args.stream,
+                )
+            else:
+                response = send_xai(
                     args.host,
                     payload,
                     api_key=args.api_key,
@@ -710,7 +797,7 @@ def process_single(args) -> None:
                         "content": user_content,
                     }
                 ],
-                "stream": True if args.stream else False,   # <<< IMPORTANT
+                "stream": True if args.stream else False,  # <<< IMPORTANT
             }
             if images_b64:
                 payload["messages"][0]["images"] = images_b64
@@ -745,18 +832,45 @@ def process_single(args) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Send a prompt plus files (including MP4) to AI backends.")
-    parser.add_argument("-m", "--model", default="llama3.2-vision",
-                        help="Model name (e.g. llama3.2-vision, gpt-4o, etc.)")
+    parser = argparse.ArgumentParser(
+        description="Send a prompt plus files (including MP4) to AI backends."
+    )
+    parser.add_argument(
+        "-m",
+        "--model",
+        default="llama3.2-vision",
+        help="Model name (e.g. llama3.2-vision, gpt-4o, etc.)",
+    )
     parser.add_argument("-p", "--prompt", help="Prompt/user instruction")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("-f", "--file", action="append", dest="files", default=[], help="File path (repeatable)")
-    group.add_argument("--url", action="append", dest="urls", default=[], help="Fetch URL and include response text (repeatable)")
-    parser.add_argument("-d", "--directory", help="Process all files in DIRECTORY individually")
-    parser.add_argument("--host", default=None,
-                        help="API host (default: depends on backend)")
-    parser.add_argument("-b", "--backend", choices=["ollama", "openai", "huggingface"], default="ollama",
-                        help="API backend to use")
+    group.add_argument(
+        "-f",
+        "--file",
+        action="append",
+        dest="files",
+        default=[],
+        help="File path (repeatable)",
+    )
+    group.add_argument(
+        "--url",
+        action="append",
+        dest="urls",
+        default=[],
+        help="Fetch URL and include response text (repeatable)",
+    )
+    parser.add_argument(
+        "-d", "--directory", help="Process all files in DIRECTORY individually"
+    )
+    parser.add_argument(
+        "--host", default=None, help="API host (default: depends on backend)"
+    )
+    parser.add_argument(
+        "-b",
+        "--backend",
+        choices=["ollama", "openai", "huggingface", "xai"],
+        default="ollama",
+        help="API backend to use",
+    )
     parser.add_argument(
         "--openai-models",
         action="store_true",
@@ -769,11 +883,26 @@ def main():
         dest="type",
         help="Override content type for fetched URLs",
     )
-    parser.add_argument("--max-chars", type=int, default=200_000, help="Max chars per text file (before truncation)")
-    parser.add_argument("--no-extract", action="store_true", help="Don't attempt text extraction for PDF/DOCX")
-    parser.add_argument("--stream", action="store_true", help="Stream response as server-sent events")
-    parser.add_argument("--video-max-frames", type=int, default=8, help="Max extracted frames per video")
-    parser.add_argument("--video-width", type=int, default=640, help="Width to resize frames (0=off)")
+    parser.add_argument(
+        "--max-chars",
+        type=int,
+        default=200_000,
+        help="Max chars per text file (before truncation)",
+    )
+    parser.add_argument(
+        "--no-extract",
+        action="store_true",
+        help="Don't attempt text extraction for PDF/DOCX",
+    )
+    parser.add_argument(
+        "--stream", action="store_true", help="Stream response as server-sent events"
+    )
+    parser.add_argument(
+        "--video-max-frames", type=int, default=8, help="Max extracted frames per video"
+    )
+    parser.add_argument(
+        "--video-width", type=int, default=640, help="Width to resize frames (0=off)"
+    )
     parser.add_argument(
         "--frame-by-frame",
         action="store_true",
@@ -790,10 +919,16 @@ def main():
     )
 
     # Tracing / verbosity
-    parser.add_argument("-v", "--verbose", action="count", default=0,
-                        help="More output (once = INFO, twice = DEBUG)")
-    parser.add_argument("--debug", action="store_true",
-                        help="Alias for very verbose logging (DEBUG)")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="More output (once = INFO, twice = DEBUG)",
+    )
+    parser.add_argument(
+        "--debug", action="store_true", help="Alias for very verbose logging (DEBUG)"
+    )
 
     args = parser.parse_args()
     if args.debug:
@@ -821,13 +956,17 @@ def main():
             args.host = "https://api.openai.com"
         elif args.backend == "huggingface":
             args.host = "https://api-inference.huggingface.co"
+        elif args.backend == "xai":
+            args.host = "https://api.x.ai"
         else:
             args.host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
     if args.backend == "openai":
         args.api_key = os.environ.get("OPENAI_API_KEY")
         if not args.api_key:
-            LOG.error("OPENAI_API_KEY environment variable is required for backend 'openai'.")
+            LOG.error(
+                "OPENAI_API_KEY environment variable is required for backend 'openai'."
+            )
             print(
                 "[ERROR] OPENAI_API_KEY environment variable is required for backend 'openai'.",
                 file=sys.stderr,
@@ -836,9 +975,20 @@ def main():
     elif args.backend == "huggingface":
         args.api_key = os.environ.get("HUGGINGFACE_API_KEY")
         if not args.api_key:
-            LOG.error("HUGGINGFACE_API_KEY environment variable is required for backend 'huggingface'.")
+            LOG.error(
+                "HUGGINGFACE_API_KEY environment variable is required for backend 'huggingface'."
+            )
             print(
                 "[ERROR] HUGGINGFACE_API_KEY environment variable is required for backend 'huggingface'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    elif args.backend == "xai":
+        args.api_key = os.environ.get("XAI_API_KEY")
+        if not args.api_key:
+            LOG.error("XAI_API_KEY environment variable is required for backend 'xai'.")
+            print(
+                "[ERROR] XAI_API_KEY environment variable is required for backend 'xai'.",
                 file=sys.stderr,
             )
             sys.exit(1)
