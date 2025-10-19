@@ -6,7 +6,7 @@ Send a prompt plus arbitrary files (including MP4) to Ollama.
 - Prefers /api/chat; falls back to /api/generate on 404.
 - Images -> base64 in the "images" field (for vision models).
 - Text files -> appended to the prompt as code blocks.
-- PDF/DOCX -> optional text extraction (PyPDF2 / python-docx).
+- PDF/DOCX -> optional text extraction with --extract-text (PyPDF2 / python-docx).
 - MP4 -> extracts N frames (PNG, base64) and appends them to "images".
 
 Compatible with Ollama 0.11.10 (REST).
@@ -714,14 +714,14 @@ def process_single(args) -> None:
 
             # default: treat as doc/text
             header_main = header_ct.split(";")[0].lower()
-            if not args.no_extract and header_main == "application/pdf":
+            if args.extract_text and header_main == "application/pdf":
                 with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
                     tmp.write(resp.content)
                     tmp.flush()
                     extracted = try_extract_pdf_text(tmp.name)
                 content = extracted or resp.text
             elif (
-                not args.no_extract
+                args.extract_text
                 and header_main
                 == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ):
@@ -790,7 +790,7 @@ def process_single(args) -> None:
             text_attachments.append((os.path.basename(path), content))
             continue
 
-        if not args.no_extract and ext == ".pdf":
+        if args.extract_text and ext == ".pdf":
             extracted = try_extract_pdf_text(path)
             if extracted:
                 if len(extracted) > args.max_chars:
@@ -798,7 +798,7 @@ def process_single(args) -> None:
                 text_attachments.append((os.path.basename(path), extracted))
                 continue
 
-        if not args.no_extract and ext == ".docx":
+        if args.extract_text and ext == ".docx":
             extracted = try_extract_docx_text(path)
             if extracted:
                 if len(extracted) > args.max_chars:
@@ -1071,9 +1071,9 @@ def main():
         help="Max chars per text file (before truncation)",
     )
     parser.add_argument(
-        "--no-extract",
+        "--extract-text",
         action="store_true",
-        help="Don't attempt text extraction for PDF/DOCX",
+        help="Use local text extraction tools for PDF/DOCX",
     )
     parser.add_argument(
         "--stream", action="store_true", help="Stream response as server-sent events"
