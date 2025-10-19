@@ -209,6 +209,12 @@ VIDEO_EXT = {".mp4"}  # extend as needed: .mov, .mkv ...
 IMAGE_MIME_PREFIXES = ("image/",)
 
 
+def _ensure_image_mime(mime: Optional[str]) -> str:
+    if mime and mime.startswith("image/"):
+        return mime
+    return "image/png"
+
+
 def is_image(path: str) -> bool:
     mime, _ = mimetypes.guess_type(path)
     return bool(mime and mime.startswith(IMAGE_MIME_PREFIXES))
@@ -270,6 +276,17 @@ def build_user_content(
         for note in video_notes:
             parts.append(f"- {note}")
     return "\n".join(parts)
+
+
+def build_gemini_contents(text: str, images: List[Tuple[str, str]]) -> List[dict]:
+    parts: List[dict] = []
+    if text:
+        parts.append({"text": text})
+    for b64, mime in images:
+        parts.append(
+            {"inline_data": {"mime_type": _ensure_image_mime(mime), "data": b64}}
+        )
+    return [{"role": "user", "parts": parts or [{"text": ""}]}]
 
 
 # ------------------------- HTTP + Endpoint-Fallback -----------------------
@@ -450,6 +467,66 @@ def send_with_fallback(
     return ""
 
 
+# ------------------------------- Gemini ----------------------------------
+
+
+def _extract_gemini_text(payload: dict) -> str:
+    chunks: List[str] = []
+    for candidate in payload.get("candidates", []):
+        content = candidate.get("content", {})
+        for part in content.get("parts", []):
+            text = part.get("text")
+            if text:
+                chunks.append(text)
+    return "".join(chunks)
+
+
+def send_gemini(
+    base_url: str, payload: dict, *, model: str, api_key: str, stream: bool
+) -> str:
+    endpoint = "streamGenerateContent" if stream else "generateContent"
+    url = base_url.rstrip("/") + f"/v1beta/models/{model}:{endpoint}?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    try:
+        if stream:
+            buffer: List[str] = []
+            with requests.post(
+                url, headers=headers, json=payload, stream=True, timeout=600
+            ) as r:
+                r.raise_for_status()
+                LOG.info("Streaming from Gemini started ...")
+                for line in r.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        line = line[len("data: ") :]
+                    try:
+                        event = json.loads(line)
+                    except Exception:
+                        print(line)
+                        continue
+                    chunk = _extract_gemini_text(event)
+                    if chunk:
+                        print(chunk, end="", flush=True)
+                        buffer.append(chunk)
+            if buffer:
+                print()
+            return "".join(buffer)
+        else:
+            with requests.post(url, headers=headers, json=payload, timeout=600) as r:
+                r.raise_for_status()
+                data = r.json()
+                content = _extract_gemini_text(data)
+                print(content)
+                return content
+    except requests.RequestException as e:
+        LOG.error("Request to Gemini failed: %s", e)
+        print(f"[ERROR] Request to Gemini failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    return ""
+
+
 # ------------------------------- OpenAI ----------------------------------
 
 
@@ -542,7 +619,7 @@ def list_openai_models(base_url: str, api_key: str) -> None:
 
 
 def process_single(args) -> None:
-    images_b64: List[str] = []
+    images_b64: List[Tuple[str, str]] = []
     text_attachments: List[Tuple[str, str]] = []
     video_notes: List[str] = []
 
@@ -556,7 +633,15 @@ def process_single(args) -> None:
             name = os.path.basename(urlparse(url).path) or url
 
             if ctype == "image":
-                images_b64.append(base64.b64encode(resp.content).decode("ascii"))
+                mime = header_ct.split(";")[0].strip().lower()
+                if not mime.startswith("image/"):
+                    mime = None
+                images_b64.append(
+                    (
+                        base64.b64encode(resp.content).decode("ascii"),
+                        _ensure_image_mime(mime),
+                    )
+                )
                 LOG.info("Fetched image URL: %s (%d bytes)", url, len(resp.content))
                 continue
 
@@ -571,7 +656,7 @@ def process_single(args) -> None:
                         target_width=args.video_width if args.video_width > 0 else None,
                     )
                 if frames:
-                    images_b64.extend(frames)
+                    images_b64.extend((frame, "image/png") for frame in frames)
                     note = (
                         f"Extracted {len(frames)} frames from '{name}' "
                         f"(width ~{args.video_width if args.video_width > 0 else 'original'} px)."
@@ -627,7 +712,8 @@ def process_single(args) -> None:
 
         if is_image(path):
             try:
-                images_b64.append(to_base64(path))
+                mime, _ = mimetypes.guess_type(path)
+                images_b64.append((to_base64(path), _ensure_image_mime(mime)))
                 LOG.info("Added image: %s", path)
             except Exception as e:
                 LOG.error("Could not read image (%s): %s", path, e)
@@ -640,7 +726,7 @@ def process_single(args) -> None:
                 target_width=args.video_width if args.video_width > 0 else None,
             )
             if frames:
-                images_b64.extend(frames)
+                images_b64.extend((frame, "image/png") for frame in frames)
                 note = (
                     f"Extracted {len(frames)} frames from '{os.path.basename(path)}' "
                     f"(width ~{args.video_width if args.video_width > 0 else 'original'} px)."
@@ -690,13 +776,28 @@ def process_single(args) -> None:
             len(images_b64),
         )
         responses: List[str] = []
-        for b64 in images_b64:
-            if args.backend in ("openai", "huggingface", "xai"):
+        for b64, mime in images_b64:
+            if args.backend == "gemini":
+                payload = {
+                    "contents": build_gemini_contents(
+                        user_content, [(b64, _ensure_image_mime(mime))]
+                    )
+                }
+                resp = send_gemini(
+                    args.host,
+                    payload,
+                    model=args.model,
+                    api_key=args.api_key,
+                    stream=args.stream,
+                )
+            elif args.backend in ("openai", "huggingface", "xai"):
                 content_parts = [{"type": "text", "text": user_content}]
                 content_parts.append(
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                        "image_url": {
+                            "url": f"data:{_ensure_image_mime(mime)};base64,{b64}"
+                        },
                     }
                 )
                 payload = {
@@ -748,13 +849,29 @@ def process_single(args) -> None:
         response = "\n".join(responses)
     else:
         # Payload for /api/chat – IMPORTANT: set stream flag correctly
-        if args.backend in ("openai", "huggingface", "xai"):
+        if args.backend == "gemini":
+            payload = {
+                "contents": build_gemini_contents(
+                    user_content,
+                    [(b64, _ensure_image_mime(mime)) for b64, mime in images_b64],
+                )
+            }
+            response = send_gemini(
+                args.host,
+                payload,
+                model=args.model,
+                api_key=args.api_key,
+                stream=args.stream,
+            )
+        elif args.backend in ("openai", "huggingface", "xai"):
             content_parts = [{"type": "text", "text": user_content}]
-            for b64 in images_b64:
+            for b64, mime in images_b64:
                 content_parts.append(
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                        "image_url": {
+                            "url": f"data:{_ensure_image_mime(mime)};base64,{b64}"
+                        },
                     }
                 )
             payload = {
@@ -800,7 +917,7 @@ def process_single(args) -> None:
                 "stream": True if args.stream else False,  # <<< IMPORTANT
             }
             if images_b64:
-                payload["messages"][0]["images"] = images_b64
+                payload["messages"][0]["images"] = [b64 for b64, _ in images_b64]
                 LOG.info(
                     "Images in payload: %d (including possible video frames)",
                     len(images_b64),
@@ -867,7 +984,7 @@ def main():
     parser.add_argument(
         "-b",
         "--backend",
-        choices=["ollama", "openai", "huggingface", "xai"],
+        choices=["ollama", "openai", "huggingface", "xai", "gemini"],
         default="ollama",
         help="API backend to use",
     )
@@ -958,6 +1075,8 @@ def main():
             args.host = "https://api-inference.huggingface.co"
         elif args.backend == "xai":
             args.host = "https://api.x.ai"
+        elif args.backend == "gemini":
+            args.host = "https://generativelanguage.googleapis.com"
         else:
             args.host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
@@ -989,6 +1108,17 @@ def main():
             LOG.error("XAI_API_KEY environment variable is required for backend 'xai'.")
             print(
                 "[ERROR] XAI_API_KEY environment variable is required for backend 'xai'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    elif args.backend == "gemini":
+        args.api_key = os.environ.get("GEMINI_API_KEY")
+        if not args.api_key:
+            LOG.error(
+                "GEMINI_API_KEY environment variable is required for backend 'gemini'."
+            )
+            print(
+                "[ERROR] GEMINI_API_KEY environment variable is required for backend 'gemini'.",
                 file=sys.stderr,
             )
             sys.exit(1)
