@@ -31,6 +31,8 @@ Install these extras when you need richer file handling:
 - `PyPDF2` – used with `--extract-text` to pull PDF contents into prompts before sending them to the selected backend.
 - `python-docx` – used with `--extract-text` to parse DOCX files and include paragraph text inline.
 - `opencv-python` – extracts representative PNG frames from video files when using `--frame-by-frame` processing.
+- `pypdfium2` + `Pillow` – render PDFs into PNG previews that are uploaded to vision-capable backends when `--extract-text` is **not** supplied.
+- `Pillow` (alone) – renders DOCX snapshots so word-processing files can be viewed as images when skipping text extraction.
 
 ## Usage
 
@@ -69,7 +71,9 @@ Use `-o`/`--output` to save the model response to a file. When no
 filename is supplied, the first attached file name with `.txt` appended is
 used; if no files are attached, `response.txt` is created.
 
-By default the CLI uploads attached documents as binary blobs so the selected
-AI model (for example an Ollama multimodal model) can interpret them directly.
-Use `--extract-text` when you prefer to run local extraction tools (PDF via
-PyPDF2, DOCX via python-docx) before embedding the contents into the prompt.
+By default the CLI renders PDF and DOCX files into PNG preview images and sends
+those to vision-capable backends (such as Ollama multimodal models). When the
+preview toolchain is unavailable, the binary document is attached instead with a
+note explaining how to enable previews. Use `--extract-text` when you prefer to
+run local extraction tools (PDF via PyPDF2, DOCX via python-docx) before
+embedding the contents into the prompt.

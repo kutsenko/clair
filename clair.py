@@ -22,9 +22,10 @@ import mimetypes
 import os
 import sys
 import tempfile
+import textwrap
 import time
 from importlib import import_module, util
-from typing import Any, List, Optional, Tuple
+from typing import Any, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
@@ -205,6 +206,202 @@ TEXT_LIKE_EXT = {
     ".conf",
     ".log",
 }
+
+PDF_PREVIEW_MAX_PAGES = 3
+DOCX_PREVIEW_MAX_IMAGES = 3
+DOCX_PREVIEW_WRAP = 90
+DOCX_PREVIEW_LINES_PER_IMAGE = 40
+
+
+def render_text_block_to_image_b64(lines: Iterable[str]) -> Optional[str]:
+    """Render wrapped text lines to a PNG image encoded as base64."""
+
+    image_module = _optional_import("PIL.Image")
+    draw_module = _optional_import("PIL.ImageDraw")
+    font_module = _optional_import("PIL.ImageFont")
+
+    if not image_module or not draw_module or not font_module:
+        LOG.debug("Pillow is required to render text previews.")
+        return None
+
+    try:
+        font = font_module.load_default()
+    except Exception as exc:  # pragma: no cover - extremely unlikely
+        LOG.warning("Failed to load Pillow default font: %s", exc)
+        return None
+
+    # Calculate approximate canvas size.
+    lines_list = list(lines)
+    if not lines_list:
+        lines_list = [""]
+
+    try:
+        sample_bbox = font.getbbox("Mg")
+        char_height = sample_bbox[3] - sample_bbox[1]
+        char_width = sample_bbox[2] - sample_bbox[0]
+    except Exception:  # pragma: no cover - defensive guard
+        char_height = 12
+        char_width = 7
+
+    max_line_len = max(len(line) for line in lines_list)
+    width = max(640, min(2048, 40 + char_width * max_line_len))
+    line_height = char_height + 6
+    height = max(80, 40 + line_height * len(lines_list))
+
+    image = image_module.new("RGB", (width, height), "white")
+    draw = draw_module.Draw(image)
+
+    y = 20
+    for line in lines_list:
+        draw.text((20, y), line, fill="black", font=font)
+        y += line_height
+
+    with io.BytesIO() as buf:
+        image.save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def wrap_text_for_preview(text: str, *, width: int) -> List[str]:
+    wrapper = textwrap.TextWrapper(
+        width=width,
+        replace_whitespace=False,
+        drop_whitespace=False,
+    )
+    lines: List[str] = []
+    for paragraph in text.splitlines():
+        if not paragraph:
+            lines.append("")
+            continue
+        wrapped = wrapper.wrap(paragraph)
+        if wrapped:
+            lines.extend(wrapped)
+        else:
+            lines.append("")
+    if not lines:
+        lines.append("")
+    return lines
+
+
+def convert_docx_blob_to_image_previews(
+    blob: bytes,
+    *,
+    max_chars: int,
+    wrap: int = DOCX_PREVIEW_WRAP,
+    max_images: int = DOCX_PREVIEW_MAX_IMAGES,
+    lines_per_image: int = DOCX_PREVIEW_LINES_PER_IMAGE,
+) -> Tuple[List[str], bool]:
+    """
+    Render a DOCX document to up to ``max_images`` PNG previews.
+
+    Returns the list of base64 images and a boolean indicating whether the
+    preview text had to be truncated due to ``max_chars``.
+    """
+
+    docx_module = _optional_import("docx")
+    if docx_module is None:
+        LOG.debug("python-docx is required for DOCX previews.")
+        return [], False
+
+    try:
+        document = docx_module.Document(io.BytesIO(blob))
+    except Exception as exc:
+        LOG.warning("Could not open DOCX for preview: %s", exc)
+        return [], False
+
+    text = "\n".join(p.text for p in document.paragraphs).strip()
+    if not text:
+        return [], False
+
+    truncated = len(text) > max_chars
+    if truncated:
+        text = text[:max_chars] + "\n\n[... truncated for preview ...]"
+
+    wrapped_lines = wrap_text_for_preview(text, width=wrap)
+    chunks: List[List[str]] = []
+    for idx in range(0, len(wrapped_lines), lines_per_image):
+        if len(chunks) >= max_images:
+            break
+        chunks.append(wrapped_lines[idx : idx + lines_per_image])
+
+    previews: List[str] = []
+    for chunk in chunks:
+        image_b64 = render_text_block_to_image_b64(chunk)
+        if image_b64:
+            previews.append(image_b64)
+
+    if not previews:
+        LOG.debug("DOCX preview rendering produced no images (Pillow missing?).")
+
+    return previews, truncated
+
+
+def convert_pdf_blob_to_image_previews(
+    blob: bytes,
+    *,
+    max_pages: int = PDF_PREVIEW_MAX_PAGES,
+    dpi: int = 200,
+) -> Tuple[List[str], int]:
+    """
+    Render the first ``max_pages`` of a PDF as PNG previews.
+
+    Returns a tuple of (images, total_pages_in_document).
+    """
+
+    pdfium = _optional_import("pypdfium2")
+    if pdfium is None:
+        LOG.debug("pypdfium2 is required for PDF previews.")
+        return [], 0
+
+    try:
+        pdf = pdfium.PdfDocument(io.BytesIO(blob))
+    except Exception as exc:
+        LOG.warning("Could not open PDF for preview: %s", exc)
+        return [], 0
+
+    total_pages = len(pdf)
+    previews: List[str] = []
+
+    try:
+        render_pages = min(total_pages, max_pages)
+        for index in range(render_pages):
+            page = pdf[index]
+            try:
+                bitmap = page.render(scale=dpi / 72)
+                try:
+                    image = bitmap.to_pil()
+                except Exception as exc:
+                    LOG.warning(
+                        "PDF preview rendering requires Pillow (page %d): %s",
+                        index + 1,
+                        exc,
+                    )
+                    return [], total_pages
+            except Exception as exc:
+                LOG.warning("Failed to render PDF page %d: %s", index + 1, exc)
+                continue
+            finally:
+                try:
+                    bitmap.close()
+                except Exception:
+                    pass
+                try:
+                    page.close()
+                except Exception:
+                    pass
+
+            with io.BytesIO() as buf:
+                image.save(buf, format="PNG")
+                previews.append(base64.b64encode(buf.getvalue()).decode("ascii"))
+    finally:
+        try:
+            pdf.close()
+        except Exception:
+            pass
+
+    if not previews:
+        LOG.debug("No PDF preview images were generated.")
+
+    return previews, total_pages
 VIDEO_EXT = {".mp4"}  # extend as needed: .mov, .mkv ...
 IMAGE_MIME_PREFIXES = ("image/",)
 
@@ -673,9 +870,65 @@ def process_single(args) -> None:
     def record_document_attachment(
         name: str, data: bytes, mime_type: Optional[str]
     ) -> None:
-        """Store a document for backends that can ingest binary blobs."""
+        """Render previews for binary documents and fall back to attachments."""
 
         mime = mime_type or "application/octet-stream"
+
+        if mime == "application/pdf":
+            previews, total_pages = convert_pdf_blob_to_image_previews(data)
+            if previews:
+                plural = "s" if len(previews) != 1 else ""
+                total_display = total_pages or len(previews)
+                note = (
+                    f"[PDF preview ready: {name} | {len(previews)} image{plural}"
+                    f" | {len(data)} bytes | first {len(previews)} of {total_display} pages"
+                    " | use --extract-text for local parsing]"
+                )
+                text_attachments.append((name, note))
+                for image_b64 in previews:
+                    images_b64.append((image_b64, "image/png"))
+                LOG.info(
+                    "Rendered %d preview image(s) for PDF '%s'.",
+                    len(previews),
+                    name,
+                )
+                return
+            placeholder = (
+                f"[PDF preview unavailable: {name} | {len(data)} bytes | install"
+                " 'pypdfium2'+'Pillow' or use --extract-text]"
+            )
+        elif (
+            mime
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ):
+            previews, truncated = convert_docx_blob_to_image_previews(
+                data, max_chars=args.max_chars
+            )
+            if previews:
+                plural = "s" if len(previews) != 1 else ""
+                suffix = " (truncated)" if truncated else ""
+                note = (
+                    f"[DOCX preview ready: {name} | {len(previews)} image{plural}"
+                    f" | {len(data)} bytes{suffix} | use --extract-text for text mode]"
+                )
+                text_attachments.append((name, note))
+                for image_b64 in previews:
+                    images_b64.append((image_b64, "image/png"))
+                LOG.info(
+                    "Rendered %d preview image(s) for DOCX '%s'.",
+                    len(previews),
+                    name,
+                )
+                return
+            placeholder = (
+                f"[DOCX preview unavailable: {name} | {len(data)} bytes | install"
+                " 'python-docx'+'Pillow' or use --extract-text]"
+            )
+        else:
+            placeholder = (
+                f"[Document attached: {name} | MIME: {mime} | {len(data)} bytes]"
+            )
+
         document_attachments.append(
             {
                 "name": name,
@@ -683,10 +936,10 @@ def process_single(args) -> None:
                 "mime_type": mime,
             }
         )
-        placeholder = (
-            f"[Document attached: {name} | MIME: {mime} | {len(data)} bytes]"
-        )
         text_attachments.append((name, placeholder))
+        LOG.info(
+            "Stored binary attachment for '%s' (mime=%s, %d bytes)", name, mime, len(data)
+        )
 
     # --- Gather URLs ---
     for url in args.urls:
