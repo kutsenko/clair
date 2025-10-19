@@ -12,7 +12,7 @@ German version: [README.de.md](README.de.md)
 ### Create and activate a virtual environment
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -46,7 +46,7 @@ pip install pillow pypdfium2 python-docx
 After activating the virtual environment, run the CLI as shown below:
 
 ```bash
-python clair.py -p "Hello" [-f path/to/file | -d path/to/dir | --url https://example.com] [-o [output.txt]] [-b backend]
+python3 clair.py -p "Hello" [-f path/to/file | -d path/to/dir | --url https://example.com] [-o [output.txt]] [-b backend]
 ```
 
 Use `--url` to download content from a web resource and include it as if it

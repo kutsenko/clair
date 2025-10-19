@@ -10,7 +10,7 @@
 ### Virtuelle Umgebung erstellen und aktivieren
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
@@ -44,7 +44,7 @@ pip install pillow pypdfium2 python-docx
 Nachdem du die virtuelle Umgebung aktiviert hast, führe die CLI wie folgt aus:
 
 ```bash
-python clair.py -p "Hello" [-f path/to/file | -d path/to/dir | --url https://example.com] [-o [output.txt]] [-b backend]
+python3 clair.py -p "Hello" [-f path/to/file | -d path/to/dir | --url https://example.com] [-o [output.txt]] [-b backend]
 ```
 
 Verwende `--url`, um Inhalte von einer Webressource herunterzuladen und sie wie einen Dateianhang einzubinden. Der Inhaltstyp wird anhand der HTTP-Antwort automatisch erkannt; überschreibe ihn bei Bedarf mit `-t/--type` (`image`, `video`, `doc`). `--url` und `-f/--file` schließen sich gegenseitig aus.
