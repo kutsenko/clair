@@ -426,6 +426,9 @@ def send_with_fallback(
         imgs = payload_chat["messages"][0].get("images", [])
         if imgs:
             payload_generate["images"] = imgs
+    documents = payload_chat["messages"][0].get("documents")
+    if documents:
+        payload_generate["documents"] = documents
 
     try:
         if stream:
@@ -665,6 +668,25 @@ def process_single(args) -> None:
     images_b64: List[Tuple[str, str]] = []
     text_attachments: List[Tuple[str, str]] = []
     video_notes: List[str] = []
+    document_attachments: List[dict] = []
+
+    def record_document_attachment(
+        name: str, data: bytes, mime_type: Optional[str]
+    ) -> None:
+        """Store a document for backends that can ingest binary blobs."""
+
+        mime = mime_type or "application/octet-stream"
+        document_attachments.append(
+            {
+                "name": name,
+                "data": base64.b64encode(data).decode("ascii"),
+                "mime_type": mime,
+            }
+        )
+        placeholder = (
+            f"[Document attached: {name} | MIME: {mime} | {len(data)} bytes]"
+        )
+        text_attachments.append((name, placeholder))
 
     # --- Gather URLs ---
     for url in args.urls:
@@ -714,22 +736,37 @@ def process_single(args) -> None:
 
             # default: treat as doc/text
             header_main = header_ct.split(";")[0].lower()
-            if args.extract_text and header_main == "application/pdf":
-                with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
-                    tmp.write(resp.content)
-                    tmp.flush()
-                    extracted = try_extract_pdf_text(tmp.name)
-                content = extracted or resp.text
+            if not header_main:
+                _, guess_ext = os.path.splitext(name)
+                if guess_ext.lower() == ".pdf":
+                    header_main = "application/pdf"
+                elif guess_ext.lower() == ".docx":
+                    header_main = (
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+            if header_main == "application/pdf":
+                if args.extract_text:
+                    with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+                        tmp.write(resp.content)
+                        tmp.flush()
+                        extracted = try_extract_pdf_text(tmp.name)
+                    content = extracted or resp.text
+                else:
+                    record_document_attachment(name, resp.content, header_main)
+                    continue
             elif (
-                args.extract_text
-                and header_main
+                header_main
                 == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ):
-                with tempfile.NamedTemporaryFile(suffix=".docx") as tmp:
-                    tmp.write(resp.content)
-                    tmp.flush()
-                    extracted = try_extract_docx_text(tmp.name)
-                content = extracted or resp.text
+                if args.extract_text:
+                    with tempfile.NamedTemporaryFile(suffix=".docx") as tmp:
+                        tmp.write(resp.content)
+                        tmp.flush()
+                        extracted = try_extract_docx_text(tmp.name)
+                    content = extracted or resp.text
+                else:
+                    record_document_attachment(name, resp.content, header_main)
+                    continue
             else:
                 content = resp.text
 
@@ -790,21 +827,47 @@ def process_single(args) -> None:
             text_attachments.append((os.path.basename(path), content))
             continue
 
-        if args.extract_text and ext == ".pdf":
-            extracted = try_extract_pdf_text(path)
-            if extracted:
-                if len(extracted) > args.max_chars:
-                    extracted = extracted[: args.max_chars] + "\n\n[... truncated ...]"
-                text_attachments.append((os.path.basename(path), extracted))
-                continue
+        if ext == ".pdf":
+            if args.extract_text:
+                extracted = try_extract_pdf_text(path)
+                if extracted:
+                    if len(extracted) > args.max_chars:
+                        extracted = (
+                            extracted[: args.max_chars] + "\n\n[... truncated ...]"
+                        )
+                    text_attachments.append((os.path.basename(path), extracted))
+                    continue
+            else:
+                try:
+                    with open(path, "rb") as fh:
+                        blob = fh.read()
+                    record_document_attachment(
+                        os.path.basename(path), blob, "application/pdf"
+                    )
+                    continue
+                except Exception as e:
+                    LOG.warning("Failed to read PDF as binary (%s): %s", path, e)
 
-        if args.extract_text and ext == ".docx":
-            extracted = try_extract_docx_text(path)
-            if extracted:
-                if len(extracted) > args.max_chars:
-                    extracted = extracted[: args.max_chars] + "\n\n[... truncated ...]"
-                text_attachments.append((os.path.basename(path), extracted))
-                continue
+        if ext == ".docx":
+            if args.extract_text:
+                extracted = try_extract_docx_text(path)
+                if extracted:
+                    if len(extracted) > args.max_chars:
+                        extracted = (
+                            extracted[: args.max_chars] + "\n\n[... truncated ...]"
+                        )
+                    text_attachments.append((os.path.basename(path), extracted))
+                    continue
+            else:
+                try:
+                    with open(path, "rb") as fh:
+                        blob = fh.read()
+                    record_document_attachment(
+                        os.path.basename(path), blob, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                    continue
+                except Exception as e:
+                    LOG.warning("Failed to read DOCX as binary (%s): %s", path, e)
 
         # Fallback: try as text (may be binary)
         content, _ = read_text_file(path, max_chars=args.max_chars)
@@ -881,6 +944,8 @@ def process_single(args) -> None:
                     ],
                     "stream": True if args.stream else False,  # <<< IMPORTANT
                 }
+                if document_attachments:
+                    payload["messages"][0]["documents"] = document_attachments
                 resp = send_with_fallback(
                     args.host,
                     payload,
@@ -965,6 +1030,8 @@ def process_single(args) -> None:
                     "Images in payload: %d (including possible video frames)",
                     len(images_b64),
                 )
+            if document_attachments:
+                payload["messages"][0]["documents"] = document_attachments
 
             # Send (with fallback & tracing)
             response = send_with_fallback(
