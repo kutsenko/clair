@@ -69,6 +69,7 @@ Use `-o`/`--output` to save the model response to a file. When no
 filename is supplied, the first attached file name with `.txt` appended is
 used; if no files are attached, `response.txt` is created.
 
-By default the CLI lets the selected AI model interpret attached documents.
+By default the CLI uploads attached documents as binary blobs so the selected
+AI model (for example an Ollama multimodal model) can interpret them directly.
 Use `--extract-text` when you prefer to run local extraction tools (PDF via
 PyPDF2, DOCX via python-docx) before embedding the contents into the prompt.
