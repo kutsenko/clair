@@ -597,8 +597,8 @@ def send_xai(base_url: str, payload: dict, api_key: str, stream: bool) -> str:
     return _send_openai_style(base_url, payload, api_key, stream, "xAI")
 
 
-def list_openai_models(base_url: str, api_key: str) -> None:
-    """Fetch and print available model IDs from OpenAI's API."""
+def list_openai_models(base_url: str, api_key: str, provider: str = "OpenAI") -> None:
+    """Fetch and print available model IDs from an OpenAI-compatible API."""
     url = base_url.rstrip("/") + "/v1/models"
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
@@ -610,8 +610,51 @@ def list_openai_models(base_url: str, api_key: str) -> None:
             if model_id:
                 print(model_id)
     except requests.RequestException as e:
-        LOG.error("Request to OpenAI models endpoint failed: %s", e)
-        print(f"[ERROR] Request to OpenAI models endpoint failed: {e}", file=sys.stderr)
+        LOG.error("Request to %s models endpoint failed: %s", provider, e)
+        print(
+            f"[ERROR] Request to {provider} models endpoint failed: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def list_ollama_models(base_url: str) -> None:
+    """Fetch and print models available on an Ollama server."""
+    url = base_url.rstrip("/") + "/api/tags"
+    try:
+        resp = requests.get(url, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        for item in data.get("models", []):
+            name = item.get("name")
+            if name:
+                print(name)
+    except requests.RequestException as e:
+        LOG.error("Request to Ollama tags endpoint failed: %s", e)
+        print(f"[ERROR] Request to Ollama tags endpoint failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def list_gemini_models(base_url: str, api_key: str) -> None:
+    """Fetch and print available models from the Gemini API."""
+    url = base_url.rstrip("/") + "/v1beta/models"
+    params = {"key": api_key}
+    try:
+        while True:
+            resp = requests.get(url, params=params, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            for item in data.get("models", []):
+                model_name = item.get("name")
+                if model_name:
+                    print(model_name)
+            token = data.get("nextPageToken")
+            if not token:
+                break
+            params["pageToken"] = token
+    except requests.RequestException as e:
+        LOG.error("Request to Gemini models endpoint failed: %s", e)
+        print(f"[ERROR] Request to Gemini models endpoint failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -975,6 +1018,32 @@ def main():
         default=[],
         help="Fetch URL and include response text (repeatable)",
     )
+    model_list_group = parser.add_mutually_exclusive_group()
+    model_list_group.add_argument(
+        "--openai-models",
+        action="store_true",
+        help="List available OpenAI models and exit (no other args allowed)",
+    )
+    model_list_group.add_argument(
+        "--huggingface-models",
+        action="store_true",
+        help="List available Hugging Face models and exit (no other args allowed)",
+    )
+    model_list_group.add_argument(
+        "--xai-models",
+        action="store_true",
+        help="List available xAI models and exit (no other args allowed)",
+    )
+    model_list_group.add_argument(
+        "--gemini-models",
+        action="store_true",
+        help="List available Gemini models and exit (no other args allowed)",
+    )
+    model_list_group.add_argument(
+        "--ollama-models",
+        action="store_true",
+        help="List available Ollama models and exit (no other args allowed)",
+    )
     parser.add_argument(
         "-d", "--directory", help="Process all files in DIRECTORY individually"
     )
@@ -987,11 +1056,6 @@ def main():
         choices=["ollama", "openai", "huggingface", "xai", "gemini"],
         default="ollama",
         help="API backend to use",
-    )
-    parser.add_argument(
-        "--openai-models",
-        action="store_true",
-        help="List available OpenAI models and exit (no other args allowed)",
     )
     parser.add_argument(
         "-t",
@@ -1052,17 +1116,56 @@ def main():
         args.verbose = max(args.verbose, 2)
     setup_logging(args.verbose)
 
-    if args.openai_models:
+    if (
+        args.openai_models
+        or args.huggingface_models
+        or args.xai_models
+        or args.gemini_models
+        or args.ollama_models
+    ):
         if len(sys.argv) > 2:
-            parser.error("--openai-models cannot be combined with other arguments")
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            print(
-                "[ERROR] OPENAI_API_KEY environment variable is required to list models.",
-                file=sys.stderr,
+            parser.error("Model listing flags cannot be combined with other arguments")
+        if args.openai_models:
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                print(
+                    "[ERROR] OPENAI_API_KEY environment variable is required to list models.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            list_openai_models("https://api.openai.com", api_key, "OpenAI")
+        elif args.huggingface_models:
+            api_key = os.environ.get("HUGGINGFACE_API_KEY")
+            if not api_key:
+                print(
+                    "[ERROR] HUGGINGFACE_API_KEY environment variable is required to list models.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            list_openai_models(
+                "https://api-inference.huggingface.co", api_key, "Hugging Face"
             )
-            sys.exit(1)
-        list_openai_models("https://api.openai.com", api_key)
+        elif args.xai_models:
+            api_key = os.environ.get("XAI_API_KEY")
+            if not api_key:
+                print(
+                    "[ERROR] XAI_API_KEY environment variable is required to list models.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            list_openai_models("https://api.x.ai", api_key, "xAI")
+        elif args.gemini_models:
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                print(
+                    "[ERROR] GEMINI_API_KEY environment variable is required to list models.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            list_gemini_models("https://generativelanguage.googleapis.com", api_key)
+        else:
+            host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+            list_ollama_models(host)
         return
 
     if not args.prompt:

@@ -20,8 +20,10 @@ environment variable. For the Hugging Face backend, the key is read from the
 from the `XAI_API_KEY` environment variable. The Google Gemini backend expects a
 `GEMINI_API_KEY` environment variable and targets
 `https://generativelanguage.googleapis.com` by default.
-Use `--openai-models` to list available models from the OpenAI API; this flag
-may not be combined with other options.
+Use the backend-specific model listing flags (`--openai-models`,
+`--huggingface-models`, `--xai-models`, `--gemini-models`, `--ollama-models`) to
+print the models exposed by the respective service. These flags cannot be
+combined with other options.
 
 Use `-d`/`--directory` to send every file in a folder **recursively**.
 Each response is written to `<filename>.txt` or, when `-o` points to a
