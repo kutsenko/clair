@@ -1,7 +1,32 @@
 # ai-cli
 AI Agents CLI Tools
 
+## Installation
+
+### Prerequisites
+
+- Python 3.11 or later
+- [virtualenv](https://virtualenv.pypa.io/) or the built-in `venv` module
+
+### Create and activate a virtual environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+On Windows, activate the environment with `.\.venv\Scripts\activate`.
+
+### Install dependencies
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
 ## Usage
+
+After activating the virtual environment, run the CLI as shown below:
 
 ```bash
 python clair.py -p "Hello" [-f path/to/file | -d path/to/dir | --url https://example.com] [-o [output.txt]] [-b backend]
