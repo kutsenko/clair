@@ -52,3 +52,13 @@ def test_xai_backend_requires_key(monkeypatch, capsys):
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert "XAI_API_KEY" in err
+
+
+def test_gemini_backend_requires_key(monkeypatch, capsys):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(sys, "argv", ["prog", "-p", "hi", "-b", "gemini"])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "GEMINI_API_KEY" in err
