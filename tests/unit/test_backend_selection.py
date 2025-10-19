@@ -42,3 +42,13 @@ def test_huggingface_backend_requires_key(monkeypatch, capsys):
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert "HUGGINGFACE_API_KEY" in err
+
+
+def test_xai_backend_requires_key(monkeypatch, capsys):
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.setattr(sys, "argv", ["prog", "-p", "hi", "-b", "xai"])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "XAI_API_KEY" in err
