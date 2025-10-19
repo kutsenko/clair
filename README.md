@@ -1,5 +1,7 @@
 # ai-cli
-AI Agents CLI Tools
+Clair (AI CLI Tools)
+
+German version: [README.de.md](README.de.md)
 
 ## Installation
 
