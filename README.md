@@ -34,6 +34,12 @@ Install these extras when you need richer file handling:
 - `pypdfium2` + `Pillow` – render PDFs into PNG previews that are uploaded to vision-capable backends when `--extract-text` is **not** supplied.
 - `Pillow` (alone) – renders DOCX snapshots so word-processing files can be viewed as images when skipping text extraction.
 
+Install the preview toolchain (for PDFs and DOCX files) with:
+
+```bash
+pip install pillow pypdfium2 python-docx
+```
+
 ## Usage
 
 After activating the virtual environment, run the CLI as shown below:
