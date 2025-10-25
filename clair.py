@@ -1375,36 +1375,11 @@ def main():
         default=[],
         help="Fetch URL and include response text (repeatable)",
     )
-    model_list_group = parser.add_mutually_exclusive_group()
-    model_list_group.add_argument(
-        "--openai-models",
-        action="store_true",
-        help="List available OpenAI models and exit (no other args allowed)",
-    )
-    model_list_group.add_argument(
-        "--huggingface-models",
-        action="store_true",
-        help="List available Hugging Face models and exit (no other args allowed)",
-    )
-    model_list_group.add_argument(
-        "--xai-models",
-        action="store_true",
-        help="List available xAI models and exit (no other args allowed)",
-    )
-    model_list_group.add_argument(
-        "--gemini-models",
-        action="store_true",
-        help="List available Gemini models and exit (no other args allowed)",
-    )
-    model_list_group.add_argument(
-        "--ollama-models",
-        action="store_true",
-        help="List available Ollama models and exit (no other args allowed)",
-    )
-    model_list_group.add_argument(
-        "--claude-models",
-        action="store_true",
-        help="List available Claude models and exit (no other args allowed)",
+    parser.add_argument(
+        "--list-models",
+        metavar="BACKEND",
+        choices=["ollama", "openai", "huggingface", "xai", "gemini", "claude"],
+        help="List available models for the specified backend and exit",
     )
     parser.add_argument(
         "-d", "--directory", help="Process all files in DIRECTORY individually"
@@ -1478,17 +1453,12 @@ def main():
         args.verbose = max(args.verbose, 2)
     setup_logging(args.verbose)
 
-    if (
-        args.openai_models
-        or args.huggingface_models
-        or args.xai_models
-        or args.gemini_models
-        or args.ollama_models
-        or args.claude_models
-    ):
-        if len(sys.argv) > 2:
-            parser.error("Model listing flags cannot be combined with other arguments")
-        if args.openai_models:
+    if args.list_models:
+        backend = args.list_models
+        if backend == "ollama":
+            host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+            list_ollama_models(host)
+        elif backend == "openai":
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
                 print(
@@ -1497,7 +1467,7 @@ def main():
                 )
                 sys.exit(1)
             list_openai_models("https://api.openai.com", api_key, "OpenAI")
-        elif args.huggingface_models:
+        elif backend == "huggingface":
             api_key = os.environ.get("HUGGINGFACE_API_KEY")
             if not api_key:
                 print(
@@ -1508,7 +1478,7 @@ def main():
             list_openai_models(
                 "https://api-inference.huggingface.co", api_key, "Hugging Face"
             )
-        elif args.xai_models:
+        elif backend == "xai":
             api_key = os.environ.get("XAI_API_KEY")
             if not api_key:
                 print(
@@ -1517,7 +1487,7 @@ def main():
                 )
                 sys.exit(1)
             list_openai_models("https://api.x.ai", api_key, "xAI")
-        elif args.gemini_models:
+        elif backend == "gemini":
             api_key = os.environ.get("GEMINI_API_KEY")
             if not api_key:
                 print(
@@ -1526,7 +1496,7 @@ def main():
                 )
                 sys.exit(1)
             list_gemini_models("https://generativelanguage.googleapis.com", api_key)
-        elif args.claude_models:
+        elif backend == "claude":
             api_key = os.environ.get("ANTHROPIC_API_KEY")
             if not api_key:
                 print(
@@ -1535,9 +1505,6 @@ def main():
                 )
                 sys.exit(1)
             list_claude_models("https://api.anthropic.com", api_key)
-        else:
-            host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-            list_ollama_models(host)
         return
 
     if not args.prompt:

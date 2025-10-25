@@ -64,10 +64,16 @@ from the `XAI_API_KEY` environment variable. The Google Gemini backend expects a
 `https://generativelanguage.googleapis.com` by default. The Anthropic Claude
 backend reads the key from the `ANTHROPIC_API_KEY` environment variable and targets
 `https://api.anthropic.com` by default.
-Use the backend-specific model listing flags (`--openai-models`,
-`--huggingface-models`, `--xai-models`, `--gemini-models`, `--claude-models`,
-`--ollama-models`) to print the models exposed by the respective service. These
-flags cannot be combined with other options.
+Use `--list-models BACKEND` to print available models for a backend.
+Supported backends: `ollama`, `openai`, `huggingface`, `xai`, `gemini`, `claude`.
+This flag cannot be combined with other options.
+
+Example:
+```bash
+python3 clair.py --list-models openai
+python3 clair.py --list-models claude
+python3 clair.py --list-models ollama
+```
 
 Use `-d`/`--directory` to send every file in a folder **recursively**.
 Each response is written to `<filename>.txt` or, when `-o` points to a

@@ -51,7 +51,16 @@ Verwende `--url`, um Inhalte von einer Webressource herunterzuladen und sie wie 
 
 Wähle das Backend mit `-b/--backend` (`ollama`, `openai`, `huggingface`, `xai`, `gemini` oder `claude`).
 Bei Verwendung des OpenAI-Backends setzt du den API-Schlüssel über die Umgebungsvariable `OPENAI_API_KEY`. Für das Hugging-Face-Backend wird der Schlüssel aus der Umgebungsvariable `HUGGINGFACE_API_KEY` gelesen. Das xAI-Backend (Grok) nutzt die Umgebungsvariable `XAI_API_KEY`. Das Google-Gemini-Backend erwartet eine Umgebungsvariable `GEMINI_API_KEY` und verwendet standardmäßig `https://generativelanguage.googleapis.com`. Das Anthropic-Claude-Backend liest den Schlüssel aus der Umgebungsvariable `ANTHROPIC_API_KEY` und verwendet standardmäßig `https://api.anthropic.com`.
-Nutze die backend-spezifischen Modellauflistungs-Flags (`--openai-models`, `--huggingface-models`, `--xai-models`, `--gemini-models`, `--claude-models`, `--ollama-models`), um die Modelle des jeweiligen Dienstes anzuzeigen. Diese Flags können nicht mit anderen Optionen kombiniert werden.
+Nutze `--list-models BACKEND`, um die verfügbaren Modelle für ein Backend anzuzeigen.
+Unterstützte Backends: `ollama`, `openai`, `huggingface`, `xai`, `gemini`, `claude`.
+Dieses Flag kann nicht mit anderen Optionen kombiniert werden.
+
+Beispiel:
+```bash
+python3 clair.py --list-models openai
+python3 clair.py --list-models claude
+python3 clair.py --list-models ollama
+```
 
 Verwende `-d`/`--directory`, um **rekursiv** jede Datei in einem Ordner zu senden. Jede Antwort wird unter `<filename>.txt` geschrieben oder, wenn `-o` auf ein Verzeichnis verweist, in diesem Verzeichnis unter Beibehaltung des relativen Pfads gespeichert.
 
