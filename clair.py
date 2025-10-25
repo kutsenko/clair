@@ -797,6 +797,11 @@ def send_xai(base_url: str, payload: dict, api_key: str, stream: bool) -> str:
     return _send_openai_style(base_url, payload, api_key, stream, "xAI")
 
 
+def send_claude(base_url: str, payload: dict, api_key: str, stream: bool) -> str:
+    """Send payload to Anthropic's Claude Chat Completions API."""
+    return _send_openai_style(base_url, payload, api_key, stream, "Claude")
+
+
 def list_openai_models(base_url: str, api_key: str, provider: str = "OpenAI") -> None:
     """Fetch and print available model IDs from an OpenAI-compatible API."""
     url = base_url.rstrip("/") + "/v1/models"
@@ -855,6 +860,24 @@ def list_gemini_models(base_url: str, api_key: str) -> None:
     except requests.RequestException as e:
         LOG.error("Request to Gemini models endpoint failed: %s", e)
         print(f"[ERROR] Request to Gemini models endpoint failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def list_claude_models(base_url: str, api_key: str) -> None:
+    """Fetch and print available models from the Anthropic Claude API."""
+    url = base_url.rstrip("/") + "/v1/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        for item in data.get("data", []):
+            model_id = item.get("id")
+            if model_id:
+                print(model_id)
+    except requests.RequestException as e:
+        LOG.error("Request to Claude models endpoint failed: %s", e)
+        print(f"[ERROR] Request to Claude models endpoint failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -1149,7 +1172,7 @@ def process_single(args) -> None:
                     api_key=args.api_key,
                     stream=args.stream,
                 )
-            elif args.backend in ("openai", "huggingface", "xai"):
+            elif args.backend in ("openai", "huggingface", "xai", "claude"):
                 content_parts = [{"type": "text", "text": user_content}]
                 content_parts.append(
                     {
@@ -1178,8 +1201,15 @@ def process_single(args) -> None:
                         api_key=args.api_key,
                         stream=args.stream,
                     )
-                else:
+                elif args.backend == "xai":
                     resp = send_xai(
+                        args.host,
+                        payload,
+                        api_key=args.api_key,
+                        stream=args.stream,
+                    )
+                else:
+                    resp = send_claude(
                         args.host,
                         payload,
                         api_key=args.api_key,
@@ -1224,7 +1254,7 @@ def process_single(args) -> None:
                 api_key=args.api_key,
                 stream=args.stream,
             )
-        elif args.backend in ("openai", "huggingface", "xai"):
+        elif args.backend in ("openai", "huggingface", "xai", "claude"):
             content_parts = [{"type": "text", "text": user_content}]
             for b64, mime in images_b64:
                 content_parts.append(
@@ -1259,8 +1289,15 @@ def process_single(args) -> None:
                     api_key=args.api_key,
                     stream=args.stream,
                 )
-            else:
+            elif args.backend == "xai":
                 response = send_xai(
+                    args.host,
+                    payload,
+                    api_key=args.api_key,
+                    stream=args.stream,
+                )
+            else:
+                response = send_claude(
                     args.host,
                     payload,
                     api_key=args.api_key,
@@ -1364,6 +1401,11 @@ def main():
         action="store_true",
         help="List available Ollama models and exit (no other args allowed)",
     )
+    model_list_group.add_argument(
+        "--claude-models",
+        action="store_true",
+        help="List available Claude models and exit (no other args allowed)",
+    )
     parser.add_argument(
         "-d", "--directory", help="Process all files in DIRECTORY individually"
     )
@@ -1373,7 +1415,7 @@ def main():
     parser.add_argument(
         "-b",
         "--backend",
-        choices=["ollama", "openai", "huggingface", "xai", "gemini"],
+        choices=["ollama", "openai", "huggingface", "xai", "gemini", "claude"],
         default="ollama",
         help="API backend to use",
     )
@@ -1442,6 +1484,7 @@ def main():
         or args.xai_models
         or args.gemini_models
         or args.ollama_models
+        or args.claude_models
     ):
         if len(sys.argv) > 2:
             parser.error("Model listing flags cannot be combined with other arguments")
@@ -1483,6 +1526,15 @@ def main():
                 )
                 sys.exit(1)
             list_gemini_models("https://generativelanguage.googleapis.com", api_key)
+        elif args.claude_models:
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if not api_key:
+                print(
+                    "[ERROR] ANTHROPIC_API_KEY environment variable is required to list models.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            list_claude_models("https://api.anthropic.com", api_key)
         else:
             host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
             list_ollama_models(host)
@@ -1500,6 +1552,8 @@ def main():
             args.host = "https://api.x.ai"
         elif args.backend == "gemini":
             args.host = "https://generativelanguage.googleapis.com"
+        elif args.backend == "claude":
+            args.host = "https://api.anthropic.com"
         else:
             args.host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
@@ -1542,6 +1596,17 @@ def main():
             )
             print(
                 "[ERROR] GEMINI_API_KEY environment variable is required for backend 'gemini'.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    elif args.backend == "claude":
+        args.api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not args.api_key:
+            LOG.error(
+                "ANTHROPIC_API_KEY environment variable is required for backend 'claude'."
+            )
+            print(
+                "[ERROR] ANTHROPIC_API_KEY environment variable is required for backend 'claude'.",
                 file=sys.stderr,
             )
             sys.exit(1)

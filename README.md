@@ -55,17 +55,19 @@ response; override with `-t/--type` (`image`, `video`, `doc`).
 `--url` and `-f/--file` are mutually exclusive.
 
 Select the backend with `-b/--backend` (`ollama`, `openai`, `huggingface`,
-`xai`, or `gemini`).
+`xai`, `gemini`, or `claude`).
 When using the OpenAI backend, set the API key via the `OPENAI_API_KEY`
 environment variable. For the Hugging Face backend, the key is read from the
 `HUGGINGFACE_API_KEY` environment variable. The xAI (Grok) backend reads the key
 from the `XAI_API_KEY` environment variable. The Google Gemini backend expects a
 `GEMINI_API_KEY` environment variable and targets
-`https://generativelanguage.googleapis.com` by default.
+`https://generativelanguage.googleapis.com` by default. The Anthropic Claude
+backend reads the key from the `ANTHROPIC_API_KEY` environment variable and targets
+`https://api.anthropic.com` by default.
 Use the backend-specific model listing flags (`--openai-models`,
-`--huggingface-models`, `--xai-models`, `--gemini-models`, `--ollama-models`) to
-print the models exposed by the respective service. These flags cannot be
-combined with other options.
+`--huggingface-models`, `--xai-models`, `--gemini-models`, `--claude-models`,
+`--ollama-models`) to print the models exposed by the respective service. These
+flags cannot be combined with other options.
 
 Use `-d`/`--directory` to send every file in a folder **recursively**.
 Each response is written to `<filename>.txt` or, when `-o` points to a
