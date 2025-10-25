@@ -15,9 +15,13 @@ class DummyResponse:
         return self._payload
 
 
+def set_argv(monkeypatch, *args):
+    monkeypatch.setattr(sys, "argv", ["prog", *args])
+
+
 def test_openai_backend_requires_key(monkeypatch, capsys):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setattr(sys, "argv", ["prog", "-p", "hi", "-b", "openai"])
+    set_argv(monkeypatch, "-p", "hi", "-b", "openai")
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
@@ -27,7 +31,7 @@ def test_openai_backend_requires_key(monkeypatch, capsys):
 
 def test_openai_models_requires_key(monkeypatch, capsys):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setattr(sys, "argv", ["prog", "--openai-models"])
+    set_argv(monkeypatch, "--list-models", "openai")
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
@@ -35,19 +39,9 @@ def test_openai_models_requires_key(monkeypatch, capsys):
     assert "OPENAI_API_KEY" in err
 
 
-def test_openai_models_exclusive(monkeypatch, capsys):
-    monkeypatch.setenv("OPENAI_API_KEY", "x")
-    monkeypatch.setattr(sys, "argv", ["prog", "--openai-models", "-b", "openai"])
-    with pytest.raises(SystemExit) as exc:
-        main()
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
-    assert "Model listing flags cannot be combined" in err
-
-
 def test_openai_models_list(monkeypatch, capsys):
     monkeypatch.setenv("OPENAI_API_KEY", "token")
-    monkeypatch.setattr(sys, "argv", ["prog", "--openai-models"])
+    set_argv(monkeypatch, "--list-models", "openai")
 
     def fake_get(url, headers=None, timeout=None):
         assert url == "https://api.openai.com/v1/models"
@@ -62,7 +56,7 @@ def test_openai_models_list(monkeypatch, capsys):
 
 def test_huggingface_models_requires_key(monkeypatch, capsys):
     monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
-    monkeypatch.setattr(sys, "argv", ["prog", "--huggingface-models"])
+    set_argv(monkeypatch, "--list-models", "huggingface")
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
@@ -72,7 +66,7 @@ def test_huggingface_models_requires_key(monkeypatch, capsys):
 
 def test_huggingface_models_list(monkeypatch, capsys):
     monkeypatch.setenv("HUGGINGFACE_API_KEY", "token")
-    monkeypatch.setattr(sys, "argv", ["prog", "--huggingface-models"])
+    set_argv(monkeypatch, "--list-models", "huggingface")
 
     def fake_get(url, headers=None, timeout=None):
         assert url == "https://api-inference.huggingface.co/v1/models"
@@ -87,7 +81,7 @@ def test_huggingface_models_list(monkeypatch, capsys):
 
 def test_xai_models_requires_key(monkeypatch, capsys):
     monkeypatch.delenv("XAI_API_KEY", raising=False)
-    monkeypatch.setattr(sys, "argv", ["prog", "--xai-models"])
+    set_argv(monkeypatch, "--list-models", "xai")
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
@@ -97,7 +91,7 @@ def test_xai_models_requires_key(monkeypatch, capsys):
 
 def test_xai_models_list(monkeypatch, capsys):
     monkeypatch.setenv("XAI_API_KEY", "token")
-    monkeypatch.setattr(sys, "argv", ["prog", "--xai-models"])
+    set_argv(monkeypatch, "--list-models", "xai")
 
     def fake_get(url, headers=None, timeout=None):
         assert url == "https://api.x.ai/v1/models"
@@ -112,7 +106,7 @@ def test_xai_models_list(monkeypatch, capsys):
 
 def test_gemini_models_requires_key(monkeypatch, capsys):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.setattr(sys, "argv", ["prog", "--gemini-models"])
+    set_argv(monkeypatch, "--list-models", "gemini")
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
@@ -122,7 +116,7 @@ def test_gemini_models_requires_key(monkeypatch, capsys):
 
 def test_gemini_models_list(monkeypatch, capsys):
     monkeypatch.setenv("GEMINI_API_KEY", "token")
-    monkeypatch.setattr(sys, "argv", ["prog", "--gemini-models"])
+    set_argv(monkeypatch, "--list-models", "gemini")
     calls = []
 
     def fake_get(url, params=None, timeout=None):
@@ -143,7 +137,7 @@ def test_gemini_models_list(monkeypatch, capsys):
 
 
 def test_ollama_models_list(monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["prog", "--ollama-models"])
+    set_argv(monkeypatch, "--list-models", "ollama")
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
 
     def fake_get(url, timeout=None):
@@ -158,7 +152,7 @@ def test_ollama_models_list(monkeypatch, capsys):
 
 def test_huggingface_backend_requires_key(monkeypatch, capsys):
     monkeypatch.delenv("HUGGINGFACE_API_KEY", raising=False)
-    monkeypatch.setattr(sys, "argv", ["prog", "-p", "hi", "-b", "huggingface"])
+    set_argv(monkeypatch, "-p", "hi", "-b", "huggingface")
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
@@ -168,7 +162,7 @@ def test_huggingface_backend_requires_key(monkeypatch, capsys):
 
 def test_xai_backend_requires_key(monkeypatch, capsys):
     monkeypatch.delenv("XAI_API_KEY", raising=False)
-    monkeypatch.setattr(sys, "argv", ["prog", "-p", "hi", "-b", "xai"])
+    set_argv(monkeypatch, "-p", "hi", "-b", "xai")
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
@@ -178,9 +172,34 @@ def test_xai_backend_requires_key(monkeypatch, capsys):
 
 def test_gemini_backend_requires_key(monkeypatch, capsys):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.setattr(sys, "argv", ["prog", "-p", "hi", "-b", "gemini"])
+    set_argv(monkeypatch, "-p", "hi", "-b", "gemini")
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert "GEMINI_API_KEY" in err
+
+
+def test_claude_models_requires_key(monkeypatch, capsys):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    set_argv(monkeypatch, "--list-models", "claude")
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "ANTHROPIC_API_KEY" in err
+
+
+def test_claude_models_list(monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "token")
+    set_argv(monkeypatch, "--list-models", "claude")
+
+    def fake_get(url, headers=None, timeout=None):
+        assert url == "https://api.anthropic.com/v1/models"
+        assert headers == {"Authorization": "Bearer token"}
+        return DummyResponse({"data": [{"id": "claude-3-opus"}]})
+
+    monkeypatch.setattr("clair.requests.get", fake_get)
+    main()
+    out = capsys.readouterr().out
+    assert "claude-3-opus" in out
