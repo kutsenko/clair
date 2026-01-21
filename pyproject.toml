@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clair"
+version = "0.1.0"
+description = "AI CLI tools for prompt-based analysis"
+readme = "README.md"
+license = { text = "LGPL-3.0" }
+requires-python = ">=3.10"
+dependencies = [
+    "requests",
+    "PyPDF2",
+    "python-docx",
+    "opencv-python",
+    "pypdfium2",
+    "Pillow",
+]
+
+[project.scripts]
+clair = "clair:main"
+
+[tool.setuptools]
+py-modules = ["clair"]
